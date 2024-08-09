@@ -16,7 +16,7 @@ func ListMonths()
   if !empty(entered)
     let mth = filter(mth, 'v:val=~"^".entered')
   endif
-  call complete(1, mth) 
+  call complete(1, mth)
   return ''
 endfunc
 
@@ -74,7 +74,7 @@ func Test_popup_complete()
   call feedkeys("aJu\<f5>\<c-p>l\<c-y>", 'tx')
   call assert_equal(["Jul"], getline(1,2))
   %d
-  
+
   " any-non printable, non-white character: Add this character and
   " reduce number of matches
   call feedkeys("aJu\<f5>\<c-p>l\<c-n>\<c-y>", 'tx')
@@ -96,7 +96,7 @@ func Test_popup_complete()
   call feedkeys("aJ\<f5>".repeat("\<c-n>",3)."\<c-l>\<esc>", 'tx')
   call assert_equal(["J"], getline(1,2))
   %d
-  
+
   " <c-l> - Insert one character from the current match
   call feedkeys("aJ\<f5>".repeat("\<c-n>",4)."\<c-l>\<esc>", 'tx')
   call assert_equal(["January"], getline(1,2))
@@ -857,7 +857,7 @@ func Test_popup_position()
   call term_sendkeys(buf, "jI123456789_\<Esc>")
   call term_sendkeys(buf, "GA\<C-N>")
   call VerifyScreenDump(buf, 'Test_popup_position_04', {'rows': 10})
-  
+
   call term_sendkeys(buf, "\<Esc>u")
   call StopVimInTerminal(buf)
   call delete('Xtest')
@@ -1489,8 +1489,63 @@ func Test_pum_highlights_match()
   call term_sendkeys(buf, "o\<BS>\<C-R>=Comp()\<CR>")
   call VerifyScreenDump(buf, 'Test_pum_highlights_09', {})
 
+  " issue #15095 wrong select
+  call term_sendkeys(buf, "\<ESC>:set completeopt=fuzzy,menu\<CR>")
+  call TermWait(buf)
+  call term_sendkeys(buf, "S hello helio hero h\<C-X>\<C-P>")
+  call TermWait(buf, 50)
+  call VerifyScreenDump(buf, 'Test_pum_highlights_10', {})
+
+  call term_sendkeys(buf, "\<ESC>S hello helio hero h\<C-X>\<C-P>\<C-P>")
+  call TermWait(buf, 50)
+  call VerifyScreenDump(buf, 'Test_pum_highlights_11', {})
+
   call term_sendkeys(buf, "\<C-E>\<Esc>")
   call TermWait(buf)
+
+  call StopVimInTerminal(buf)
+endfunc
+
+func Test_pum_user_hl_group()
+  CheckScreendump
+  let lines =<< trim END
+    func CompleteFunc( findstart, base )
+      if a:findstart
+        return 0
+      endif
+      return {
+            \ 'words': [
+            \ { 'word': 'aword1', 'menu': 'extra text 1', 'kind': 'W', 'hl_group': 'StrikeFake' },
+            \ { 'word': 'aword2', 'menu': 'extra text 2', 'kind': 'W', },
+            \ { 'word': '你好', 'menu': 'extra text 3', 'kind': 'W', 'hl_group': 'StrikeFake' },
+            \]}
+    endfunc
+    set completeopt=menu
+    set completefunc=CompleteFunc
+
+    hi StrikeFake ctermfg=9
+    func HlMatch()
+      hi PmenuMatchSel  ctermfg=6 ctermbg=7 cterm=underline
+      hi PmenuMatch     ctermfg=4 ctermbg=225 cterm=underline
+    endfunc
+  END
+  call writefile(lines, 'Xscript', 'D')
+  let buf = RunVimInTerminal('-S Xscript', {})
+
+  call TermWait(buf)
+  call term_sendkeys(buf, "Saw\<C-X>\<C-U>")
+  call VerifyScreenDump(buf, 'Test_pum_highlights_12', {})
+  call term_sendkeys(buf, "\<C-E>\<Esc>")
+
+  call TermWait(buf)
+  call term_sendkeys(buf, ":call HlMatch()\<CR>")
+
+  call TermWait(buf)
+  call term_sendkeys(buf, "Saw\<C-X>\<C-U>")
+  call VerifyScreenDump(buf, 'Test_pum_highlights_13', {})
+  call term_sendkeys(buf, "\<C-N>")
+  call VerifyScreenDump(buf, 'Test_pum_highlights_14', {})
+  call term_sendkeys(buf, "\<C-E>\<Esc>")
 
   call StopVimInTerminal(buf)
 endfunc

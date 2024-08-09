@@ -337,7 +337,7 @@ TREESITTER QUERY DIRECTIVES                            *treesitter-directives*
 Treesitter directives store metadata for a node or match and perform side
 effects. For example, the `set!` directive sets metadata on the match or node: >query
 
-        ((identifier) @foo (#set! "type" "parameter"))
+        ((identifier) @foo (#set! type "parameter"))
 <
 The following directives are built in:
 
@@ -352,13 +352,14 @@ The following directives are built in:
             {value}
 
         Examples: >query
-            ((identifier) @foo (#set! @foo "kind" "parameter"))
-            ((node1) @left (node2) @right (#set! "type" "pair"))
-            ((codeblock) @markup.raw.block (#set! "priority" 90))
+            ((identifier) @foo (#set! @foo kind "parameter"))
+            ((node1) @left (node2) @right (#set! type "pair"))
+            ((codeblock) @markup.raw.block (#set! priority 90))
 <
     `offset!`                                      *treesitter-directive-offset!*
         Takes the range of the captured node and applies an offset. This will
-        set a new `Range4` object for the captured node with `capture_id` as
+        set a new range in the form of a list like { {start_row}, {start_col},
+        {end_row}, {end_col} } for the captured node with `capture_id` as
         `metadata[capture_id].range`. Useful for |treesitter-language-injections|.
 
         Parameters: ~
@@ -638,7 +639,7 @@ higher than treesitter. It is also possible to change the priority of an
 individual query pattern manually by setting its `"priority"` metadata
 attribute: >query
 
-    ((super_important_node) @superimportant (#set! "priority" 105))
+    ((super_important_node) @superimportant (#set! priority 105))
 <
 
 ==============================================================================
@@ -773,6 +774,8 @@ get_node({opts})                                   *vim.treesitter.get_node()*
                   filetype)
                 • {ignore_injections} (`boolean?`) Ignore injected languages
                   (default true)
+                • {include_anonymous} (`boolean?`) Include anonymous nodes
+                  (default false)
 
     Return: ~
         (`TSNode?`) Node at the given position
@@ -831,7 +834,13 @@ get_range({node}, {source}, {metadata})           *vim.treesitter.get_range()*
       • {metadata}  (`vim.treesitter.query.TSMetadata?`)
 
     Return: ~
-        (`Range6`)
+        (`table`) A table with the following fields:
+        • {[1]} (`integer`) start row
+        • {[2]} (`integer`) start column
+        • {[3]} (`integer`) start bytes
+        • {[4]} (`integer`) end row
+        • {[5]} (`integer`) end column
+        • {[6]} (`integer`) end bytes
 
                                           *vim.treesitter.get_string_parser()*
 get_string_parser({str}, {lang}, {opts})
@@ -1298,7 +1307,11 @@ LanguageTree:contains({range})                       *LanguageTree:contains()*
     Determines whether {range} is contained in the |LanguageTree|.
 
     Parameters: ~
-      • {range}  (`Range4`) `{ start_line, start_col, end_line, end_col }`
+      • {range}  (`table`) A table with the following fields:
+                 • {[1]} (`integer`) start row
+                 • {[2]} (`integer`) start column
+                 • {[3]} (`integer`) end row
+                 • {[4]} (`integer`) end column
 
     Return: ~
         (`boolean`)
@@ -1322,7 +1335,9 @@ LanguageTree:for_each_tree({fn})                *LanguageTree:for_each_tree()*
 LanguageTree:included_regions()              *LanguageTree:included_regions()*
     Gets the set of included regions managed by this LanguageTree. This can be
     different from the regions set by injection query, because a partial
-    |LanguageTree:parse()| drops the regions outside the requested range.
+    |LanguageTree:parse()| drops the regions outside the requested range. Each
+    list represents a range in the form of { {start_row}, {start_col},
+    {start_bytes}, {end_row}, {end_col}, {end_bytes} }.
 
     Return: ~
         (`table<integer, Range6[]>`)
@@ -1357,7 +1372,11 @@ LanguageTree:language_for_range({range})
     Gets the appropriate language that contains {range}.
 
     Parameters: ~
-      • {range}  (`Range4`) `{ start_line, start_col, end_line, end_col }`
+      • {range}  (`table`) A table with the following fields:
+                 • {[1]} (`integer`) start row
+                 • {[2]} (`integer`) start column
+                 • {[3]} (`integer`) end row
+                 • {[4]} (`integer`) end column
 
     Return: ~
         (`vim.treesitter.LanguageTree`) tree Managing {range}
@@ -1367,7 +1386,28 @@ LanguageTree:named_node_for_range({range}, {opts})
     Gets the smallest named node that contains {range}.
 
     Parameters: ~
-      • {range}  (`Range4`) `{ start_line, start_col, end_line, end_col }`
+      • {range}  (`table`) A table with the following fields:
+                 • {[1]} (`integer`) start row
+                 • {[2]} (`integer`) start column
+                 • {[3]} (`integer`) end row
+                 • {[4]} (`integer`) end column
+      • {opts}   (`table?`) A table with the following fields:
+                 • {ignore_injections}? (`boolean`, default: `true`) Ignore
+                   injected languages
+
+    Return: ~
+        (`TSNode?`)
+
+                                               *LanguageTree:node_for_range()*
+LanguageTree:node_for_range({range}, {opts})
+    Gets the smallest node that contains {range}.
+
+    Parameters: ~
+      • {range}  (`table`) A table with the following fields:
+                 • {[1]} (`integer`) start row
+                 • {[2]} (`integer`) start column
+                 • {[3]} (`integer`) end row
+                 • {[4]} (`integer`) end column
       • {opts}   (`table?`) A table with the following fields:
                  • {ignore_injections}? (`boolean`, default: `true`) Ignore
                    injected languages
@@ -1428,7 +1468,11 @@ LanguageTree:tree_for_range({range}, {opts})
     Gets the tree that contains {range}.
 
     Parameters: ~
-      • {range}  (`Range4`) `{ start_line, start_col, end_line, end_col }`
+      • {range}  (`table`) A table with the following fields:
+                 • {[1]} (`integer`) start row
+                 • {[2]} (`integer`) start column
+                 • {[3]} (`integer`) end row
+                 • {[4]} (`integer`) end column
       • {opts}   (`table?`) A table with the following fields:
                  • {ignore_injections}? (`boolean`, default: `true`) Ignore
                    injected languages

@@ -183,6 +183,7 @@ local function set_inspector_cursor(treeview, lang, source_buf, inspect_buf, ins
     lang = lang,
     pos = pos,
     ignore_injections = false,
+    include_anonymous = treeview.opts.anon,
   })
   if not cursor_node then
     return
@@ -220,13 +221,12 @@ function TSTreeView:draw(bufnr)
 
     local text ---@type string
     if item.node:named() then
-      if item.field then
-        text = string.format('%s: (%s', item.field, item.node:type())
-      else
-        text = string.format('(%s', item.node:type())
-      end
+      text = string.format('(%s', item.node:type())
     else
       text = string.format('%q', item.node:type()):gsub('\n', 'n')
+    end
+    if item.field then
+      text = string.format('%s: %s', item.field, text)
     end
 
     local next = self:get(i + 1)

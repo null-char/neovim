@@ -89,7 +89,7 @@ char *eval_one_expr_in_str(char *p, garray_T *gap, bool evaluate)
   }
   if (evaluate) {
     *block_end = NUL;
-    char *expr_val = eval_to_string(block_start, false);
+    char *expr_val = eval_to_string(block_start, false, false);
     *block_end = '}';
     if (expr_val == NULL) {
       return NULL;
@@ -105,7 +105,7 @@ char *eval_one_expr_in_str(char *p, garray_T *gap, bool evaluate)
 /// string in allocated memory.  "{{" is reduced to "{" and "}}" to "}".
 /// Used for a heredoc assignment.
 /// Returns NULL for an error.
-char *eval_all_expr_in_str(char *str)
+static char *eval_all_expr_in_str(char *str)
 {
   garray_T ga;
   ga_init(&ga, 1, 80);

@@ -6,7 +6,6 @@
 #endif
 #include <assert.h>
 #include <limits.h>
-#include <msgpack/pack.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -545,10 +544,8 @@ int main(int argc, char **argv)
 
   no_wait_return = true;
 
-  //
   // Create the requested number of windows and edit buffers in them.
   // Also does recovery if "recoverymode" set.
-  //
   create_windows(&params);
   TIME_MSG("opening buffers");
 

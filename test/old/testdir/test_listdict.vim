@@ -57,6 +57,9 @@ func Test_list_slice()
       assert_equal([1, 2], l[-3 : -1])
   END
   call CheckDefAndScriptSuccess(lines)
+
+  call assert_fails('let l[[]] = 1', 'E730: Using a List as a String')
+  call assert_fails('let l[1 : []] = [1]', 'E730: Using a List as a String')
 endfunc
 
 " List identity
@@ -175,6 +178,19 @@ func Test_list_assign()
   END
   call CheckScriptFailure(['vim9script'] + lines, 'E688:')
   call CheckDefExecFailure(lines, 'E1093: Expected 2 items but got 1')
+
+  let lines =<< trim END
+    VAR l = [2]
+    LET l += v:_null_list
+    call assert_equal([2], l)
+    LET l = v:_null_list
+    LET l += [1]
+    call assert_equal([1], l)
+  END
+  call CheckLegacyAndVim9Success(lines)
+
+  let d = {'abc': [1, 2, 3]}
+  call assert_fails('let d.abc[0:0z10] = [10, 20]', 'E976: Using a Blob as a String')
 endfunc
 
 " test for range assign
@@ -193,6 +209,26 @@ func Test_list_range_assign()
     l[:] = ['text']
   END
   call CheckDefAndScriptFailure(lines, 'E1012:', 2)
+endfunc
+
+func Test_list_items()
+  let r = []
+  let l = ['a', 'b', 'c']
+  for [idx, val] in items(l)
+    call extend(r, [[idx, val]])
+  endfor
+  call assert_equal([[0, 'a'], [1, 'b'], [2, 'c']], r)
+
+  call assert_fails('call items(3)', 'E1225:')
+endfunc
+
+func Test_string_items()
+  let r = []
+  let s = 'ábツ'
+  for [idx, val] in items(s)
+    call extend(r, [[idx, val]])
+  endfor
+  call assert_equal([[0, 'á'], [1, 'b'], [2, 'ツ']], r)
 endfunc
 
 " Test removing items in list
@@ -420,6 +456,9 @@ func Test_dict_assign()
     n.key = 3
   END
   call CheckDefFailure(lines, 'E1141:')
+
+  let d = {'abc': {}}
+  call assert_fails("let d.abc[0z10] = 10", 'E976: Using a Blob as a String')
 endfunc
 
 " Function in script-local List or Dict
@@ -1055,6 +1094,19 @@ func Test_listdict_compare()
   call assert_fails('echo {} =~ {}', 'E736:')
 endfunc
 
+func Test_recursive_listdict_compare()
+  let l1 = [0, 1]
+  let l1[0] = l1
+  let l2 = [0, 1]
+  let l2[0] = l2
+  call assert_true(l1 == l2)
+  let d1 = {0: 0, 1: 1}
+  let d1[0] = d1
+  let d2 = {0: 0, 1: 1}
+  let d2[0] = d2
+  call assert_true(d1 == d2)
+endfunc
+
   " compare complex recursively linked list and dict
 func Test_listdict_compare_complex()
   let lines =<< trim END
@@ -1416,6 +1468,8 @@ func Test_indexof()
   call assert_equal(-1, indexof(l, v:_null_string))
   " Nvim doesn't have null functions
   " call assert_equal(-1, indexof(l, test_null_function()))
+  call assert_equal(-1, indexof(l, ""))
+  call assert_fails('let i = indexof(l, " ")', 'E15:')
 
   " failure cases
   call assert_fails('let i = indexof(l, "v:val == ''cyan''")', 'E735:')

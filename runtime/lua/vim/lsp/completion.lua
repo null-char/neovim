@@ -176,7 +176,7 @@ local function apply_defaults(item, defaults)
   if defaults.editRange then
     local textEdit = item.textEdit or {}
     item.textEdit = textEdit
-    textEdit.newText = textEdit.newText or item.textEditText or item.insertText
+    textEdit.newText = textEdit.newText or item.textEditText or item.insertText or item.label
     if defaults.editRange.start then
       textEdit.range = textEdit.range or defaults.editRange
     elseif defaults.editRange.insert then
@@ -253,6 +253,13 @@ function M._lsp_to_complete_items(result, prefix, client_id)
   for _, item in ipairs(items) do
     if matches(item) then
       local word = get_completion_word(item)
+      local hl_group = ''
+      if
+        item.deprecated
+        or vim.list_contains((item.tags or {}), protocol.CompletionTag.Deprecated)
+      then
+        hl_group = 'DiagnosticDeprecated'
+      end
       table.insert(candidates, {
         word = word,
         abbr = item.label,
@@ -262,6 +269,7 @@ function M._lsp_to_complete_items(result, prefix, client_id)
         icase = 1,
         dup = 1,
         empty = 1,
+        hl_group = hl_group,
         user_data = {
           nvim = {
             lsp = {

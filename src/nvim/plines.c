@@ -158,8 +158,7 @@ CharSize charsize_regular(CharsizeArg *csarg, char *const cur, colnr_T const vco
       if (mark.pos.row != csarg->virt_row || mark.pos.col > col) {
         break;
       } else if (mark.pos.col == col) {
-        if (!mt_end(mark) && (mark.flags & MT_FLAG_DECOR_VIRT_TEXT_INLINE)
-            && ns_in_win(mark.ns, wp)) {
+        if (!mt_invalid(mark) && ns_in_win(mark.ns, wp)) {
           DecorInline decor = mt_decor(mark);
           DecorVirtText *vt = decor.ext ? decor.data.ext.vt : NULL;
           while (vt) {
@@ -268,7 +267,7 @@ CharSize charsize_regular(CharsizeArg *csarg, char *const cur, colnr_T const vco
           head += (max_head_vcol - (vcol + head_prev + prev_rem)
                    + width2 - 1) / width2 * head_mid;
         } else if (max_head_vcol < 0) {
-          int off = virt_text_cursor_off(csarg, *cur == NUL);
+          int off = mb_added + virt_text_cursor_off(csarg, *cur == NUL);
           if (off >= prev_rem) {
             if (size > off) {
               head += (1 + (off - prev_rem) / width) * head_mid;
@@ -713,7 +712,7 @@ bool win_may_fill(win_T *wp)
 /// @return Number of filler lines above lnum
 int win_get_fill(win_T *wp, linenr_T lnum)
 {
-  int virt_lines = decor_virt_lines(wp, lnum, NULL, kNone);
+  int virt_lines = decor_virt_lines(wp, lnum - 1, lnum, NULL, true);
 
   // be quick when there are no filler lines
   if (diffopt_filler()) {
@@ -905,6 +904,25 @@ int plines_m_win(win_T *wp, linenr_T first, linenr_T last, int max)
     count += win_get_fill(wp, first);
   }
   return MIN(max, count);
+}
+
+/// Return number of window lines a physical line range will occupy.
+/// Only considers real and filler lines.
+///
+/// Mainly used for calculating scrolling offsets.
+int plines_m_win_fill(win_T *wp, linenr_T first, linenr_T last)
+{
+  int count = last - first + 1 + decor_virt_lines(wp, first - 1, last, NULL, false);
+
+  if (diffopt_filler()) {
+    for (int lnum = first; lnum <= last; lnum++) {
+      // Note: this also considers folds.
+      int n = diff_check(wp, lnum);
+      count += MAX(n, 0);
+    }
+  }
+
+  return MAX(count, 0);
 }
 
 /// Get the number of screen lines a range of text will take in window "wp".

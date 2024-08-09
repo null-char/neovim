@@ -28,17 +28,18 @@ You can also run Lua scripts from your shell using the |-l| argument: >
     nvim -l foo.lua [args...]
 <
                                                                   *lua-compat*
-Lua 5.1 is the permanent interface for Nvim Lua.  Plugins need only consider
-Lua 5.1, not worry about forward-compatibility with future Lua versions.  If
-Nvim ever ships with Lua 5.4+, a Lua 5.1 compatibility shim will be provided
-so that old plugins continue to work transparently.
+Lua 5.1 is the permanent interface for Nvim Lua. Plugins should target Lua 5.1
+as specified in |luaref|; later versions (which are essentially different,
+incompatible, dialects) are not supported. This includes extensions such as
+`goto` that some Lua 5.1 interpreters like LuaJIT may support.
 
                                                                   *lua-luajit*
-On supported platforms, Nvim is built with LuaJIT, which provides extra
-functionality (compared to PUC Lua) such as "bit" and various utilities (see
-|lua-profile|). Lua code in |init.lua| and plugins can assume its presence on
-many platforms, but for maximum compatibility should check the `jit` global
-variable: >lua
+While Nvim officially only requires Lua 5.1 support, it should be built with
+LuaJIT or a compatible fork on supported platforms for performance reasons.
+LuaJIT also comes with useful extensions such as `ffi`, |lua-profile|, and
+enhanced standard library functions; these cannot be assumed to be available,
+and Lua code in |init.lua| or plugins should check the `jit` global variable
+before using them: >lua
   if jit then
     -- code for luajit
   else
@@ -46,11 +47,12 @@ variable: >lua
   end
 <
                                                                   *lua-bit*
-The LuaJIT "bit" extension module is _always_ available: when built with PUC
-Lua, Nvim includes a fallback implementation which provides `require("bit")`.
+One exception is the LuaJIT `bit` extension, which is always available: when
+built with PUC Lua, Nvim includes a fallback implementation which provides
+`require("bit")`.
 
                                                                   *lua-profile*
-To profile Lua code (with LuaJIT-enabled Nvim), the basic steps are: >lua
+If Nvim is built with LuaJIT, Lua code can be profiled via >lua
     -- Start a profiling session:
     require('jit.p').start('ri1', '/tmp/profile')
 
@@ -59,7 +61,7 @@ To profile Lua code (with LuaJIT-enabled Nvim), the basic steps are: >lua
     -- Stop the session. Profile is written to /tmp/profile.
     require('jit.p').stop()
 
-See https://luajit.org/ext_profiler.html or the "p.lua" source for details: >
+See https://luajit.org/ext_profiler.html or the `p.lua` source for details: >
     :lua vim.cmd.edit(package.searchpath('jit.p', package.path))
 
 ==============================================================================
@@ -543,15 +545,18 @@ Example: File-change detection                                    *watch-file*
     vim.api.nvim_command(
       "command! -nargs=1 Watch call luaeval('watch_file(_A)', expand('<args>'))")
 <
-                                                         *fswatch-limitations*
-When on Linux and using fswatch, you may need to increase the maximum number
-of `inotify` watches and queued events as the default limit can be too low. To
-increase the limit, run: >sh
-    sysctl fs.inotify.max_user_watches=100000
-    sysctl fs.inotify.max_queued_events=100000
+                                                         *inotify-limitations*
+When on Linux you may need to increase the maximum number of `inotify` watches
+and queued events as the default limit can be too low. To increase the limit,
+run: >sh
+    sysctl fs.inotify.max_user_watches=494462
 <
-This will increase the limit to 100000 watches and queued events. These lines
+This will increase the limit to 494462 watches and queued events. These lines
 can be added to `/etc/sysctl.conf` to make the changes persistent.
+
+Note that each watch is a structure in the Kernel, thus available memory is
+also a bottleneck for using inotify. In fact, a watch can take up to 1KB of
+space. This means a million watches could result in 1GB of extra RAM usage.
 
 Example: TCP echo-server                                          *tcp-server*
     1. Save this code to a file.
@@ -3087,7 +3092,7 @@ In addition, its regex-like interface is available as |vim.re|
 
 
 
-Pattern:match({subject}, {init})                             *Pattern:match()*
+Pattern:match({subject}, {init}, {...})                      *Pattern:match()*
     Matches the given `pattern` against the `subject` string. If the match
     succeeds, returns the index in the subject of the first character after
     the match, or the captured values (if the pattern captured any value). An
@@ -3110,9 +3115,10 @@ Pattern:match({subject}, {init})                             *Pattern:match()*
     Parameters: ~
       • {subject}  (`string`)
       • {init}     (`integer?`)
+      • {...}      (`any`)
 
     Return: ~
-        (`integer|vim.lpeg.Capture?`)
+        (`any`) ...
 
 vim.lpeg.B({pattern})                                           *vim.lpeg.B()*
     Returns a pattern that matches only if the input string at the current
@@ -3122,7 +3128,7 @@ vim.lpeg.B({pattern})                                           *vim.lpeg.B()*
     or failure.
 
     Parameters: ~
-      • {pattern}  (`vim.lpeg.Pattern`)
+      • {pattern}  (`vim.lpeg.Pattern|string|integer|boolean|table`)
 
     Return: ~
         (`vim.lpeg.Pattern`)
@@ -3146,7 +3152,7 @@ vim.lpeg.C({patt})                                              *vim.lpeg.C()*
 <
 
     Parameters: ~
-      • {patt}  (`vim.lpeg.Pattern`)
+      • {patt}  (`vim.lpeg.Pattern|string|integer|boolean|table|function`)
 
     Return: ~
         (`vim.lpeg.Capture`)
@@ -3197,11 +3203,11 @@ vim.lpeg.Cf({patt}, {func})                                    *vim.lpeg.Cf()*
     This capture assumes that `patt` should produce at least one capture with
     at least one value (of any type), which becomes the initial value of an
     accumulator. (If you need a specific initial value, you may prefix a
-    constant captureto `patt`.) For each subsequent capture, LPeg calls `func`
-    with this accumulator as the first argument and all values produced by the
-    capture as extra arguments; the first result from this call becomes the
-    new value for the accumulator. The final value of the accumulator becomes
-    the captured value.
+    constant capture to `patt`.) For each subsequent capture, LPeg calls
+    `func` with this accumulator as the first argument and all values produced
+    by the capture as extra arguments; the first result from this call becomes
+    the new value for the accumulator. The final value of the accumulator
+    becomes the captured value.
 
     Example: >lua
         local number = lpeg.R('09') ^ 1 / tonumber
@@ -3212,7 +3218,7 @@ vim.lpeg.Cf({patt}, {func})                                    *vim.lpeg.Cf()*
 <
 
     Parameters: ~
-      • {patt}  (`vim.lpeg.Pattern`)
+      • {patt}  (`vim.lpeg.Pattern|string|integer|boolean|table|function`)
       • {func}  (`fun(acc, newvalue)`)
 
     Return: ~
@@ -3224,7 +3230,7 @@ vim.lpeg.Cg({patt}, {name})                                    *vim.lpeg.Cg()*
     with the given name (which can be any non-nil Lua value).
 
     Parameters: ~
-      • {patt}  (`vim.lpeg.Pattern`)
+      • {patt}  (`vim.lpeg.Pattern|string|integer|boolean|table|function`)
       • {name}  (`string?`)
 
     Return: ~
@@ -3247,8 +3253,9 @@ vim.lpeg.Cmt({patt}, {fn})                                    *vim.lpeg.Cmt()*
     function become the values produced by the capture.
 
     Parameters: ~
-      • {patt}  (`vim.lpeg.Pattern`)
-      • {fn}    (`function`)
+      • {patt}  (`vim.lpeg.Pattern|string|integer|boolean|table|function`)
+      • {fn}    (`fun(s: string, i: integer, ...: any)`) (position:
+                boolean|integer, ...: any)
 
     Return: ~
         (`vim.lpeg.Capture`)
@@ -3287,7 +3294,7 @@ vim.lpeg.Cs({patt})                                            *vim.lpeg.Cs()*
 <
 
     Parameters: ~
-      • {patt}  (`vim.lpeg.Pattern`)
+      • {patt}  (`vim.lpeg.Pattern|string|integer|boolean|table|function`)
 
     Return: ~
         (`vim.lpeg.Capture`)
@@ -3300,7 +3307,7 @@ vim.lpeg.Ct({patt})                                            *vim.lpeg.Ct()*
     the group name as its key. The captured value is only the table.
 
     Parameters: ~
-      • {patt}  (`vim.lpeg.Pattern|''`)
+      • {patt}  (`vim.lpeg.Pattern|string|integer|boolean|table|function`)
 
     Return: ~
         (`vim.lpeg.Capture`)
@@ -3335,7 +3342,7 @@ vim.lpeg.locale({tab})                                     *vim.lpeg.locale()*
     Return: ~
         (`vim.lpeg.Locale`)
 
-vim.lpeg.match({pattern}, {subject}, {init})                *vim.lpeg.match()*
+vim.lpeg.match({pattern}, {subject}, {init}, {...})         *vim.lpeg.match()*
     Matches the given `pattern` against the `subject` string. If the match
     succeeds, returns the index in the subject of the first character after
     the match, or the captured values (if the pattern captured any value). An
@@ -3356,12 +3363,13 @@ vim.lpeg.match({pattern}, {subject}, {init})                *vim.lpeg.match()*
 <
 
     Parameters: ~
-      • {pattern}  (`vim.lpeg.Pattern`)
+      • {pattern}  (`vim.lpeg.Pattern|string|integer|boolean|table|function`)
       • {subject}  (`string`)
       • {init}     (`integer?`)
+      • {...}      (`any`)
 
     Return: ~
-        (`integer|vim.lpeg.Capture?`)
+        (`any`) ...
 
 vim.lpeg.P({value})                                             *vim.lpeg.P()*
     Converts the given value into a proper pattern. The following rules are
@@ -3455,7 +3463,7 @@ vim.lpeg.V({v})                                                 *vim.lpeg.V()*
 <
 
     Parameters: ~
-      • {v}  (`string|integer`)
+      • {v}  (`boolean|string|number|function|table|thread|userdata|lightuserdata`)
 
     Return: ~
         (`vim.lpeg.Pattern`)
@@ -4406,7 +4414,7 @@ vim.text.hexencode({str})                               *vim.text.hexencode()*
 Lua module: tohtml                                                *vim.tohtml*
 
 
-:TOhtml {file}                                                       *:TOhtml*
+:[range]TOhtml {file}                                                *:TOhtml*
 Converts the buffer shown in the current window to HTML, opens the generated
 HTML in a new split window, and saves its contents to {file}. If {file} is not
 given, a temporary file (created by |tempname()|) is used.
@@ -4428,6 +4436,8 @@ tohtml.tohtml({winid}, {opt})                         *tohtml.tohtml.tohtml()*
                  • {width}? (`integer`, default: 'textwidth' if non-zero or
                    window width otherwise) Width used for items which are
                    either right aligned or repeat a character infinitely.
+                 • {range}? (`integer[]`, default: entire buffer) Range of
+                   rows to use.
 
     Return: ~
         (`string[]`)

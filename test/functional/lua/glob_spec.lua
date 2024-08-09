@@ -9,14 +9,9 @@ describe('glob', function()
   after_each(n.clear)
 
   local match = function(...)
-    return exec_lua(
-      [[
-      local pattern = select(1, ...)
-      local str = select(2, ...)
-      return require("vim.glob").to_lpeg(pattern):match(str) ~= nil
-    ]],
-      ...
-    )
+    return exec_lua(function(pattern, str)
+      return require('vim.glob').to_lpeg(pattern):match(str) ~= nil
+    end, ...)
   end
 
   describe('glob matching', function()
@@ -203,6 +198,19 @@ describe('glob', function()
       eq(false, match('[!a-zA-Z0-9]', 'A'))
       eq(false, match('[!a-zA-Z0-9]', '0'))
       eq(true, match('[!a-zA-Z0-9]', '!'))
+    end)
+
+    it('should handle long patterns', function()
+      -- lpeg has a recursion limit of 200 by default, make sure the grammar does trigger it on
+      -- strings longer than that
+      local fill_200 =
+        'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+      eq(200, fill_200:len())
+      local long_lit = fill_200 .. 'a'
+      eq(false, match(long_lit, 'b'))
+      eq(true, match(long_lit, long_lit))
+      local long_pat = fill_200 .. 'a/**/*.c'
+      eq(true, match(long_pat, fill_200 .. 'a/b/c/d.c'))
     end)
 
     it('should match complex patterns', function()

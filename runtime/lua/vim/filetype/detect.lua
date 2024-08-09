@@ -711,8 +711,22 @@ end
 
 --- @type vim.filetype.mapfn
 function M.html(_, bufnr)
+  -- Disabled for the reasons mentioned here:
+  -- https://github.com/vim/vim/pull/13594#issuecomment-1834465890
+  -- local filename = fn.fnamemodify(path, ':t')
+  -- if filename:find('%.component%.html$') then
+  --   return 'htmlangular'
+  -- end
+
   for _, line in ipairs(getlines(bufnr, 1, 40)) do
-    if matchregex(line, [[\<DTD\s\+XHTML\s]]) then
+    if
+      matchregex(
+        line,
+        [[@\(if\|for\|defer\|switch\)\|\*\(ngIf\|ngFor\|ngSwitch\|ngTemplateOutlet\)\|ng-template\|ng-content\|{{.*}}]]
+      )
+    then
+      return 'htmlangular'
+    elseif matchregex(line, [[\<DTD\s\+XHTML\s]]) then
       return 'xhtml'
     elseif
       matchregex(
@@ -721,6 +735,8 @@ function M.html(_, bufnr)
       )
     then
       return 'htmldjango'
+    elseif findany(line, { '<extend', '<super>' }) then
+      return 'superhtml'
     end
   end
   return 'html'
@@ -958,6 +974,24 @@ local function m4(contents)
   end
 end
 
+--- Check if it is a Microsoft Makefile
+--- @type vim.filetype.mapfn
+function M.make(_, bufnr)
+  vim.b.make_microsoft = nil
+  for _, line in ipairs(getlines(bufnr, 1, 1000)) do
+    if matchregex(line, [[\c^\s*!\s*\(ifn\=\(def\)\=\|include\|message\|error\)\>]]) then
+      vim.b.make_microsoft = 1
+      break
+    elseif
+      matchregex(line, [[^ *ifn\=\(eq\|def\)\>]])
+      or findany(line, { '^ *[-s]?%s', '^ *%w+%s*[!?:+]=' })
+    then
+      break
+    end
+  end
+  return 'make'
+end
+
 --- @type vim.filetype.mapfn
 function M.markdown(_, _)
   return vim.g.filetype_md or 'markdown'
@@ -1102,6 +1136,8 @@ function M.perl(path, bufnr)
   end
 end
 
+local prolog_patterns = { '^%s*:%-', '^%s*%%+%s', '^%s*%%+$', '^%s*/%*', '%.%s*$' }
+
 --- @type vim.filetype.mapfn
 function M.pl(_, bufnr)
   if vim.g.filetype_pl then
@@ -1110,11 +1146,7 @@ function M.pl(_, bufnr)
   -- Recognize Prolog by specific text in the first non-empty line;
   -- require a blank after the '%' because Perl uses "%list" and "%translate"
   local line = nextnonblank(bufnr, 1)
-  if
-    line and line:find(':%-')
-    or matchregex(line, [[\c\<prolog\>]])
-    or findany(line, { '^%s*%%+%s', '^%s*%%+$', '^%s*/%*' })
-  then
+  if line and matchregex(line, [[\c\<prolog\>]]) or findany(line, prolog_patterns) then
     return 'prolog'
   else
     return 'perl'
@@ -1218,11 +1250,7 @@ function M.proto(_, bufnr)
   -- Recognize Prolog by specific text in the first non-empty line;
   -- require a blank after the '%' because Perl uses "%list" and "%translate"
   local line = nextnonblank(bufnr, 1)
-  if
-    line and line:find(':%-')
-    or matchregex(line, [[\c\<prolog\>]])
-    or findany(line, { '^%s*%%+%s', '^%s*%%+$', '^%s*/%*' })
-  then
+  if line and matchregex(line, [[\c\<prolog\>]]) or findany(line, prolog_patterns) then
     return 'prolog'
   end
 end
@@ -1597,7 +1625,7 @@ function M.tex(path, bufnr)
   end
 end
 
--- Determine if a *.tf file is TF mud client or terraform
+-- Determine if a *.tf file is TF (TinyFugue) mud client or terraform
 --- @type vim.filetype.mapfn
 function M.tf(_, bufnr)
   for _, line in ipairs(getlines(bufnr)) do

@@ -105,10 +105,10 @@ static buffheader_T readbuf1 = { { NULL, { NUL } }, NULL, 0, 0 };
 static buffheader_T readbuf2 = { { NULL, { NUL } }, NULL, 0, 0 };
 
 /// Buffer used to store typed characters for vim.on_key().
-static kvec_withinit_t(char, MAXMAPLEN) on_key_buf = KVI_INITIAL_VALUE(on_key_buf);
+static kvec_withinit_t(char, MAXMAPLEN + 1) on_key_buf = KVI_INITIAL_VALUE(on_key_buf);
 
 /// Number of following bytes that should not be stored for vim.on_key().
-static size_t no_on_key_len = 0;
+static size_t on_key_ignore_len = 0;
 
 static int typeahead_char = 0;  ///< typeahead char that's not flushed
 
@@ -268,17 +268,12 @@ static void add_buff(buffheader_T *const buf, const char *const s, ptrdiff_t sle
   }
   buf->bh_index = 0;
 
-  size_t len;
   if (buf->bh_space >= (size_t)slen) {
-    len = strlen(buf->bh_curr->b_str);
+    size_t len = strlen(buf->bh_curr->b_str);
     xmemcpyz(buf->bh_curr->b_str + len, s, (size_t)slen);
     buf->bh_space -= (size_t)slen;
   } else {
-    if (slen < MINIMAL_SIZE) {
-      len = MINIMAL_SIZE;
-    } else {
-      len = (size_t)slen;
-    }
+    size_t len = MAX(MINIMAL_SIZE, (size_t)slen);
     buffblock_T *p = xmalloc(offsetof(buffblock_T, b_str) + len + 1);
     buf->bh_space = len - (size_t)slen;
     xmemcpyz(p->b_str, s, (size_t)slen);
@@ -1010,18 +1005,18 @@ int ins_typebuf(char *str, int noremap, int offset, bool nottyped, bool silent)
 /// Uses cmd_silent, KeyTyped and KeyNoremap to restore the flags belonging to
 /// the char.
 ///
-/// @param no_on_key don't store these bytes for vim.on_key()
+/// @param on_key_ignore don't store these bytes for vim.on_key()
 ///
 /// @return the length of what was inserted
-int ins_char_typebuf(int c, int modifiers, bool no_on_key)
+int ins_char_typebuf(int c, int modifiers, bool on_key_ignore)
 {
   char buf[MB_MAXBYTES * 3 + 4];
   unsigned len = special_to_buf(c, modifiers, true, buf);
   assert(len < sizeof(buf));
   buf[len] = NUL;
   ins_typebuf(buf, KeyNoremap, 0, !KeyTyped, cmd_silent);
-  if (KeyTyped && no_on_key) {
-    no_on_key_len += len;
+  if (KeyTyped && on_key_ignore) {
+    on_key_ignore_len += len;
   }
   return (int)len;
 }
@@ -1189,20 +1184,19 @@ static void gotchars(const uint8_t *chars, size_t len)
       updatescript(state.buf[i]);
     }
 
-    state.buf[state.buflen] = NUL;
+    if (state.buflen > on_key_ignore_len) {
+      kvi_concat_len(on_key_buf, (char *)state.buf + on_key_ignore_len,
+                     state.buflen - on_key_ignore_len);
+      on_key_ignore_len = 0;
+    } else {
+      on_key_ignore_len -= state.buflen;
+    }
 
     if (reg_recording != 0) {
+      state.buf[state.buflen] = NUL;
       add_buff(&recordbuff, (char *)state.buf, (ptrdiff_t)state.buflen);
       // remember how many chars were last recorded
       last_recorded_len += state.buflen;
-    }
-
-    if (state.buflen > no_on_key_len) {
-      vim_unescape_ks((char *)state.buf + no_on_key_len);
-      kvi_concat(on_key_buf, (char *)state.buf + no_on_key_len);
-      no_on_key_len = 0;
-    } else {
-      no_on_key_len -= state.buflen;
     }
 
     state.buflen = 0;
@@ -1222,7 +1216,7 @@ static void gotchars(const uint8_t *chars, size_t len)
 void gotchars_ignore(void)
 {
   uint8_t nop_buf[3] = { K_SPECIAL, KS_EXTRA, KE_IGNORE };
-  no_on_key_len += 3;
+  on_key_ignore_len += 3;
   gotchars(nop_buf, 3);
 }
 
@@ -1635,8 +1629,52 @@ int vgetc(void)
         c = TO_SPECIAL(c2, c);
       }
 
-      // a keypad or special function key was not mapped, use it like
-      // its ASCII equivalent
+      // For a multi-byte character get all the bytes and return the
+      // converted character.
+      // Note: This will loop until enough bytes are received!
+      int n;
+      if ((n = MB_BYTE2LEN_CHECK(c)) > 1) {
+        no_mapping++;
+        buf[0] = (uint8_t)c;
+        for (int i = 1; i < n; i++) {
+          buf[i] = (uint8_t)vgetorpeek(true);
+          if (buf[i] == K_SPECIAL) {
+            // Must be a K_SPECIAL - KS_SPECIAL - KE_FILLER sequence,
+            // which represents a K_SPECIAL (0x80).
+            vgetorpeek(true);  // skip KS_SPECIAL
+            vgetorpeek(true);  // skip KE_FILLER
+          }
+        }
+        no_mapping--;
+        c = utf_ptr2char((char *)buf);
+      }
+
+      // If mappings are enabled (i.e., not i_CTRL-V) and the user directly typed
+      // something with MOD_MASK_ALT (<M-/<A- modifier) that was not mapped, interpret
+      // <M-x> as <Esc>x rather than as an unbound <M-x> keypress. #8213
+      // In Terminal mode, however, this is not desirable. #16202 #16220
+      // Also do not do this for mouse keys, as terminals encode mouse events as
+      // CSI sequences, and MOD_MASK_ALT has a meaning even for unmapped mouse keys.
+      if (!no_mapping && KeyTyped && mod_mask == MOD_MASK_ALT
+          && !(State & MODE_TERMINAL) && !is_mouse_key(c)) {
+        mod_mask = 0;
+        int len = ins_char_typebuf(c, 0, false);
+        ins_char_typebuf(ESC, 0, false);
+        int old_len = len + 3;  // K_SPECIAL KS_MODIFIER MOD_MASK_ALT takes 3 more bytes
+        ungetchars(old_len);
+        if (on_key_buf.size >= (size_t)old_len) {
+          on_key_buf.size -= (size_t)old_len;
+        }
+        continue;
+      }
+
+      if (vgetc_char == 0) {
+        vgetc_mod_mask = mod_mask;
+        vgetc_char = c;
+      }
+
+      // A keypad or special function key was not mapped, use it like
+      // its ASCII equivalent.
       switch (c) {
       case K_KPLUS:
         c = '+'; break;
@@ -1714,50 +1752,6 @@ int vgetc(void)
         c = K_RIGHT; break;
       }
 
-      // For a multi-byte character get all the bytes and return the
-      // converted character.
-      // Note: This will loop until enough bytes are received!
-      int n;
-      if ((n = MB_BYTE2LEN_CHECK(c)) > 1) {
-        no_mapping++;
-        buf[0] = (uint8_t)c;
-        for (int i = 1; i < n; i++) {
-          buf[i] = (uint8_t)vgetorpeek(true);
-          if (buf[i] == K_SPECIAL) {
-            // Must be a K_SPECIAL - KS_SPECIAL - KE_FILLER sequence,
-            // which represents a K_SPECIAL (0x80).
-            vgetorpeek(true);  // skip KS_SPECIAL
-            vgetorpeek(true);  // skip KE_FILLER
-          }
-        }
-        no_mapping--;
-        c = utf_ptr2char((char *)buf);
-      }
-
-      if (vgetc_char == 0) {
-        vgetc_mod_mask = mod_mask;
-        vgetc_char = c;
-      }
-
-      // If mappings are enabled (i.e., not i_CTRL-V) and the user directly typed something with
-      // MOD_MASK_ALT (<M-/<A- modifier) that was not mapped, interpret <M-x> as <Esc>x rather
-      // than as an unbound <M-x> keypress. #8213
-      // In Terminal mode, however, this is not desirable. #16202 #16220
-      // Also do not do this for mouse keys, as terminals encode mouse events as CSI sequences, and
-      // MOD_MASK_ALT has a meaning even for unmapped mouse keys.
-      if (!no_mapping && KeyTyped && mod_mask == MOD_MASK_ALT && !(State & MODE_TERMINAL)
-          && !is_mouse_key(c)) {
-        mod_mask = 0;
-        int len = ins_char_typebuf(c, 0, false);
-        ins_char_typebuf(ESC, 0, false);
-        int old_len = len + 3;  // K_SPECIAL KS_MODIFIER MOD_MASK_ALT takes 3 more bytes
-        ungetchars(old_len);
-        if (on_key_buf.size >= (size_t)old_len) {
-          on_key_buf.size -= (size_t)old_len;
-        }
-        continue;
-      }
-
       break;
     }
 
@@ -1770,7 +1764,8 @@ int vgetc(void)
   may_garbage_collect = false;
 
   // Execute Lua on_key callbacks.
-  nlua_execute_on_key(c, on_key_buf.items, on_key_buf.size);
+  kvi_push(on_key_buf, NUL);
+  nlua_execute_on_key(c, on_key_buf.items);
   kvi_destroy(on_key_buf);
   kvi_init(on_key_buf);
 
@@ -2238,9 +2233,7 @@ static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth)
           }
         } else {
           // No match; may have to check for termcode at next character.
-          if (max_mlen < mlen) {
-            max_mlen = mlen;
-          }
+          max_mlen = MAX(max_mlen, mlen);
         }
       }
     }
@@ -2341,8 +2334,8 @@ static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth)
     const int save_m_noremap = mp->m_noremap;
     const bool save_m_silent = mp->m_silent;
     char *save_m_keys = NULL;  // only saved when needed
-    char *save_m_str = NULL;  // only saved when needed
-    const LuaRef save_m_luaref = mp->m_luaref;
+    char *save_alt_m_keys = NULL;  // only saved when needed
+    const int save_alt_m_keylen = mp->m_alt != NULL ? mp->m_alt->m_keylen : 0;
 
     // Handle ":map <expr>": evaluate the {rhs} as an
     // expression.  Also save and restore the command line
@@ -2355,10 +2348,10 @@ static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth)
       vgetc_busy = 0;
       may_garbage_collect = false;
 
-      save_m_keys = xstrdup(mp->m_keys);
-      if (save_m_luaref == LUA_NOREF) {
-        save_m_str = xstrdup(mp->m_str);
-      }
+      save_m_keys = xmemdupz(mp->m_keys, (size_t)mp->m_keylen);
+      save_alt_m_keys = mp->m_alt != NULL
+                        ? xmemdupz(mp->m_alt->m_keys, (size_t)save_alt_m_keylen)
+                        : NULL;
       map_str = eval_map_expr(mp, NUL);
 
       if ((map_str == NULL || *map_str == NUL)) {
@@ -2375,9 +2368,7 @@ static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth)
           if (State & MODE_CMDLINE) {
             // redraw the command below the error
             msg_didout = true;
-            if (msg_row < cmdline_row) {
-              msg_row = cmdline_row;
-            }
+            msg_row = MAX(msg_row, cmdline_row);
             redrawcmd();
           }
         } else if (State & (MODE_NORMAL | MODE_INSERT)) {
@@ -2409,11 +2400,18 @@ static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth)
 
       if (save_m_noremap != REMAP_YES) {
         noremap = save_m_noremap;
-      } else if (strncmp(map_str, save_m_keys != NULL ? save_m_keys : mp->m_keys,
-                         (size_t)keylen) != 0) {
-        noremap = REMAP_YES;
-      } else {
+      } else if (save_m_expr
+                 ? strncmp(map_str, save_m_keys, (size_t)keylen) == 0
+                 || (save_alt_m_keys != NULL
+                     && strncmp(map_str, save_alt_m_keys,
+                                (size_t)save_alt_m_keylen) == 0)
+                 : strncmp(map_str, mp->m_keys, (size_t)keylen) == 0
+                 || (mp->m_alt != NULL
+                     && strncmp(map_str, mp->m_alt->m_keys,
+                                (size_t)mp->m_alt->m_keylen) == 0)) {
         noremap = REMAP_SKIP;
+      } else {
+        noremap = REMAP_YES;
       }
       i = ins_typebuf(map_str, noremap, 0, true, cmd_silent || save_m_silent);
       if (save_m_expr) {
@@ -2421,7 +2419,7 @@ static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth)
       }
     }
     xfree(save_m_keys);
-    xfree(save_m_str);
+    xfree(save_alt_m_keys);
     *keylenp = keylen;
     if (i == FAIL) {
       return map_result_fail;
@@ -2729,16 +2727,12 @@ static int vgetorpeek(bool advance)
             timedout = true;
             continue;
           }
-          // In Ex-mode \n is compatible with original Vim behaviour.
+
           // For the command line only CTRL-C always breaks it.
           // For the cmdline window: Alternate between ESC and
           // CTRL-C: ESC for most situations and CTRL-C to close the
           // cmdline window.
-          if ((State & MODE_CMDLINE) || (cmdwin_type > 0 && tc == ESC)) {
-            c = Ctrl_C;
-          } else {
-            c = ESC;
-          }
+          c = ((State & MODE_CMDLINE) || (cmdwin_type > 0 && tc == ESC)) ? Ctrl_C : ESC;
           tc = c;
 
           // set a flag to indicate this wasn't a normal char

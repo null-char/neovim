@@ -203,16 +203,17 @@ function vim.fn.assert_beeps(cmd) end
 --- added to |v:errors| and 1 is returned.  Otherwise zero is
 --- returned. |assert-return|
 --- The error is in the form "Expected {expected} but got
---- {actual}".  When {msg} is present it is prefixed to that.
+--- {actual}".  When {msg} is present it is prefixed to that,
+--- along with the location of the assert when run from a script.
 ---
 --- There is no automatic conversion, the String "4" is different
 --- from the Number 4.  And the number 4 is different from the
 --- Float 4.0.  The value of 'ignorecase' is not used here, case
 --- always matters.
 --- Example: >vim
----   assert_equal('foo', 'bar')
---- <Will result in a string to be added to |v:errors|:
----   test.vim line 12: Expected 'foo' but got 'bar' ~
+---   call assert_equal('foo', 'bar', 'baz')
+--- <Will add the following to |v:errors|:
+---   test.vim line 12: baz: Expected 'foo' but got 'bar' ~
 ---
 --- @param expected any
 --- @param actual any
@@ -254,25 +255,25 @@ function vim.fn.assert_exception(error, msg) end
 --- When {error} is a string it must be found literally in the
 --- first reported error. Most often this will be the error code,
 --- including the colon, e.g. "E123:". >vim
----   assert_fails('bad cmd', 'E987:')
+---   call assert_fails('bad cmd', 'E987:')
 --- <
 --- When {error} is a |List| with one or two strings, these are
 --- used as patterns.  The first pattern is matched against the
 --- first reported error: >vim
----   assert_fails('cmd', ['E987:.*expected bool'])
+---   call assert_fails('cmd', ['E987:.*expected bool'])
 --- <The second pattern, if present, is matched against the last
 --- reported error.  To only match the last error use an empty
 --- string for the first error: >vim
----   assert_fails('cmd', ['', 'E987:'])
+---   call assert_fails('cmd', ['', 'E987:'])
 --- <
 --- If {msg} is empty then it is not used.  Do this to get the
 --- default message when passing the {lnum} argument.
----
+---           *E1115*
 --- When {lnum} is present and not negative, and the {error}
 --- argument is present and matches, then this is compared with
 --- the line number at which the error was reported. That can be
 --- the line number in a function or in a script.
----
+---           *E1116*
 --- When {context} is present it is used as a pattern and matched
 --- against the context (script name or function name) where
 --- {lnum} is located in.
@@ -291,7 +292,8 @@ function vim.fn.assert_fails(cmd, error, msg, lnum, context) end
 --- When {actual} is not false an error message is added to
 --- |v:errors|, like with |assert_equal()|.
 --- The error is in the form "Expected False but got {actual}".
---- When {msg} is present it is prepended to that.
+--- When {msg} is present it is prefixed to that, along with the
+--- location of the assert when run from a script.
 --- Also see |assert-return|.
 ---
 --- A value is false when it is zero. When {actual} is not a
@@ -319,7 +321,8 @@ function vim.fn.assert_inrange(lower, upper, actual, msg) end
 --- When {pattern} does not match {actual} an error message is
 --- added to |v:errors|.  Also see |assert-return|.
 --- The error is in the form "Pattern {pattern} does not match
---- {actual}".  When {msg} is present it is prefixed to that.
+--- {actual}".  When {msg} is present it is prefixed to that,
+--- along with the location of the assert when run from a script.
 ---
 --- {pattern} is used as with |expr-=~|: The matching is always done
 --- like 'magic' was set and 'cpoptions' is empty, no matter what
@@ -330,7 +333,7 @@ function vim.fn.assert_inrange(lower, upper, actual, msg) end
 --- Use both to match the whole text.
 ---
 --- Example: >vim
----   assert_match('^f.*o$', 'foobar')
+---   call assert_match('^f.*o$', 'foobar')
 --- <Will result in a string to be added to |v:errors|:
 ---   test.vim line 12: Pattern '^f.*o$' does not match 'foobar' ~
 ---
@@ -380,7 +383,8 @@ function vim.fn.assert_report(msg) end
 --- Also see |assert-return|.
 --- A value is |TRUE| when it is a non-zero number or |v:true|.
 --- When {actual} is not a number or |v:true| the assert fails.
---- When {msg} is given it precedes the default message.
+--- When {msg} is given it is prefixed to the default message,
+--- along with the location of the assert when run from a script.
 ---
 --- @param actual any
 --- @param msg? any
@@ -1582,8 +1586,10 @@ function vim.fn.eventhandler() end
 --- This function checks if an executable with the name {expr}
 --- exists.  {expr} must be the name of the program without any
 --- arguments.
+---
 --- executable() uses the value of $PATH and/or the normal
---- searchpath for programs.    *PATHEXT*
+--- searchpath for programs.
+---           *PATHEXT*
 --- On MS-Windows the ".exe", ".bat", etc. can optionally be
 --- included.  Then the extensions in $PATHEXT are tried.  Thus if
 --- "foo.exe" does not exist, "foo.exe.bat" can be found.  If
@@ -1593,8 +1599,13 @@ function vim.fn.eventhandler() end
 --- then the name is also tried without adding an extension.
 --- On MS-Windows it only checks if the file exists and is not a
 --- directory, not if it's really executable.
---- On Windows an executable in the same directory as Vim is
---- always found (it is added to $PATH at |startup|).
+--- On MS-Windows an executable in the same directory as the Vim
+--- executable is always found (it's added to $PATH at |startup|).
+---       *NoDefaultCurrentDirectoryInExePath*
+--- On MS-Windows an executable in Vim's current working directory
+--- is also normally found, but this can be disabled by setting
+--- the $NoDefaultCurrentDirectoryInExePath environment variable.
+---
 --- The result is a Number:
 ---   1  exists
 ---   0  does not exist
@@ -1988,6 +1999,19 @@ function vim.fn.feedkeys(string, mode) end
 --- @param file string
 --- @return any
 function vim.fn.file_readable(file) end
+
+--- Copy the file pointed to by the name {from} to {to}. The
+--- result is a Number, which is |TRUE| if the file was copied
+--- successfully, and |FALSE| when it failed.
+--- If a file with name {to} already exists, it will fail.
+--- Note that it does not handle directories (yet).
+---
+--- This function is not available in the |sandbox|.
+---
+--- @param from string
+--- @param to string
+--- @return 0|1
+function vim.fn.filecopy(from, to) end
 
 --- The result is a Number, which is |TRUE| when a file with the
 --- name {file} exists, and can be read.  If {file} doesn't exist,
@@ -2523,12 +2547,25 @@ function vim.fn.get(blob, idx, default) end
 --- @return any
 function vim.fn.get(dict, key, default) end
 
---- Get item {what} from Funcref {func}.  Possible values for
+--- Get item {what} from |Funcref| {func}.  Possible values for
 --- {what} are:
----   "name"  The function name
----   "func"  The function
----   "dict"  The dictionary
----   "args"  The list with arguments
+---   "name"    The function name
+---   "func"    The function
+---   "dict"    The dictionary
+---   "args"    The list with arguments
+---   "arity"   A dictionary with information about the number of
+---       arguments accepted by the function (minus the
+---       {arglist}) with the following fields:
+---     required    the number of positional arguments
+---     optional    the number of optional arguments,
+---           in addition to the required ones
+---     varargs     |TRUE| if the function accepts a
+---           variable number of arguments |...|
+---
+---     Note: There is no error, if the {arglist} of
+---     the Funcref contains more arguments than the
+---     Funcref expects, it's not validated.
+---
 --- Returns zero on error.
 ---
 --- @param func function
@@ -2929,6 +2966,7 @@ function vim.fn.getcmdwintype() end
 --- customlist,{func} custom completion, defined via {func}
 --- diff_buffer  |:diffget| and |:diffput| completion
 --- dir    directory names
+--- dir_in_path  directory names in |'cdpath'|
 --- environment  environment variable names
 --- event    autocommand events
 --- expression  Vim expression
@@ -4302,7 +4340,7 @@ function vim.fn.iconv(string, from, to) end
 --- Note that `v:_null_string`, `v:_null_list`, `v:_null_dict` and
 --- `v:_null_blob` have the same `id()` with different types
 --- because they are internally represented as NULL pointers.
---- `id()` returns a hexadecimal representanion of the pointers to
+--- `id()` returns a hexadecimal representation of the pointers to
 --- the containers (i.e. like `0x994a40`), same as `printf("%p",
 --- {expr})`, but it is advised against counting on the exact
 --- format of the return value.
@@ -4628,6 +4666,24 @@ function vim.fn.interrupt() end
 --- @return any
 function vim.fn.invert(expr) end
 
+--- The result is a Number, which is |TRUE| when {path} is an
+--- absolute path.
+--- On Unix, a path is considered absolute when it starts with '/'.
+--- On MS-Windows, it is considered absolute when it starts with an
+--- optional drive prefix and is followed by a '\' or '/'. UNC paths
+--- are always absolute.
+--- Example: >vim
+---   echo isabsolutepath('/usr/share/')  " 1
+---   echo isabsolutepath('./foobar')    " 0
+---   echo isabsolutepath('C:\Windows')  " 1
+---   echo isabsolutepath('foobar')    " 0
+---   echo isabsolutepath('\\remote\file')  " 1
+--- <
+---
+--- @param path any
+--- @return 0|1
+function vim.fn.isabsolutepath(path) end
+
 --- The result is a Number, which is |TRUE| when a directory
 --- with the name {directory} exists.  If {directory} doesn't
 --- exist, or isn't a directory, the result is |FALSE|.  {directory}
@@ -4681,6 +4737,10 @@ function vim.fn.isnan(expr) end
 ---   for [key, value] in items(mydict)
 ---      echo key .. ': ' .. value
 ---   endfor
+--- <
+--- A List or a String argument is also supported.  In these
+--- cases, items() returns a List with the index and the value at
+--- the index.
 ---
 --- @param dict any
 --- @return any
@@ -5512,10 +5572,10 @@ function vim.fn.matchadd(group, pattern, priority, id, dict) end
 
 --- Same as |matchadd()|, but requires a list of positions {pos}
 --- instead of a pattern. This command is faster than |matchadd()|
---- because it does not require to handle regular expressions and
---- sets buffer line boundaries to redraw screen. It is supposed
---- to be used when fast match additions and deletions are
---- required, for example to highlight matching parentheses.
+--- because it does not handle regular expressions and it sets
+--- buffer line boundaries to redraw screen. It is supposed to be
+--- used when fast match additions and deletions are required, for
+--- example to highlight matching parentheses.
 ---           *E5030* *E5031*
 --- {pos} is a list of positions.  Each position can be one of
 --- these:
@@ -8427,6 +8487,7 @@ function vim.fn.sign_define(name, dict) end
 ---    icon    full path to the bitmap file for the sign.
 ---    linehl  highlight group used for the whole line the
 ---     sign is placed in.
+---    priority  default priority value of the sign
 ---    numhl  highlight group used for the line number where
 ---     the sign is placed.
 ---    text    text that is displayed when there is no icon
@@ -8477,6 +8538,7 @@ function vim.fn.sign_define(list) end
 ---    linehl  highlight group used for the whole line the
 ---     sign is placed in; not present if not set.
 ---    name    name of the sign
+---    priority  default priority value of the sign
 ---    numhl  highlight group used for the line number where
 ---     the sign is placed; not present if not set.
 ---    text    text that is displayed when there is no icon
@@ -8668,7 +8730,8 @@ function vim.fn.sign_place(id, group, name, buf, dict) end
 ---     priority  Priority of the sign. When multiple signs are
 ---     placed on a line, the sign with the highest
 ---     priority is used. If not specified, the
----     default value of 10 is used. See
+---     default value of 10 is used, unless specified
+---     otherwise by the sign definition. See
 ---     |sign-priority| for more information.
 ---
 --- If {id} refers to an existing sign, then the existing sign is
@@ -9050,8 +9113,8 @@ function vim.fn.spellbadword(sentence) end
 function vim.fn.spellsuggest(word, max, capital) end
 
 --- Make a |List| out of {string}.  When {pattern} is omitted or
---- empty each white-separated sequence of characters becomes an
---- item.
+--- empty each white space separated sequence of characters
+--- becomes an item.
 --- Otherwise the string is split where {pattern} matches,
 --- removing the matched characters. 'ignorecase' is not used
 --- here, add \c to ignore case. |/\c|

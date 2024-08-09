@@ -1205,8 +1205,7 @@ describe('lua stdlib', function()
     ]])
     eq(true, exec_lua([[return next(vim.fn.FooFunc(3)) == nil ]]))
     eq(3, eval('g:test'))
-    -- compat: nvim_call_function uses "special" value for empty dict
-    eq(true, exec_lua([[return next(vim.api.nvim_call_function("FooFunc", {5})) == true ]]))
+    eq(true, exec_lua([[return vim.tbl_isempty(vim.api.nvim_call_function("FooFunc", {5}))]]))
     eq(5, eval('g:test'))
 
     eq({ 2, 'foo', true }, exec_lua([[return vim.fn.VarArg(2, "foo", true)]]))
@@ -1495,6 +1494,60 @@ describe('lua stdlib', function()
     ]])
     )
 
+    eq(
+      { false, false },
+      exec_lua([[
+      local meta = { __call = {} }
+      assert(meta.__call)
+      local function new()
+        return setmetatable({}, meta)
+      end
+      local not_callable = new()
+      return { pcall(function() not_callable() end), vim.is_callable(not_callable) }
+    ]])
+    )
+    eq(
+      { false, false },
+      exec_lua([[
+      local function new()
+        return { __call = function()end }
+      end
+      local not_callable = new()
+      assert(not_callable.__call)
+      return { pcall(function() not_callable() end), vim.is_callable(not_callable) }
+    ]])
+    )
+    eq(
+      { false, false },
+      exec_lua([[
+      local meta = setmetatable(
+        { __index = { __call = function() end } },
+        { __index = { __call = function() end } }
+      )
+      assert(meta.__call)
+      local not_callable = setmetatable({}, meta)
+      assert(not_callable.__call)
+      return { pcall(function() not_callable() end), vim.is_callable(not_callable) }
+    ]])
+    )
+    eq(
+      { false, false },
+      exec_lua([[
+      local meta = setmetatable({
+        __index = function()
+          return function() end
+        end,
+      }, {
+        __index = function()
+          return function() end
+        end,
+      })
+      assert(meta.__call)
+      local not_callable = setmetatable({}, meta)
+      assert(not_callable.__call)
+      return { pcall(function() not_callable() end), vim.is_callable(not_callable) }
+    ]])
+    )
     eq(false, exec_lua('return vim.is_callable(1)'))
     eq(false, exec_lua("return vim.is_callable('foo')"))
     eq(false, exec_lua('return vim.is_callable({})'))

@@ -98,6 +98,7 @@ static const char *command_complete[] = {
   [EXPAND_USER_VARS] = "var",
   [EXPAND_BREAKPOINT] = "breakpoint",
   [EXPAND_SCRIPTNAMES] = "scriptnames",
+  [EXPAND_DIRS_IN_CDPATH] = "dir_in_path",
 };
 
 /// List of names of address types.  Must be alphabetical for completion.
@@ -804,9 +805,7 @@ invalid_count:
         }
       }
 
-      if (*def < 0) {
-        *def = 0;
-      }
+      *def = MAX(*def, 0);
     } else if (STRNICMP(attr, "complete", attrlen) == 0) {
       if (val == NULL) {
         semsg(_(e_argument_required_for_str), "-complete");

@@ -273,8 +273,8 @@ func Test_win_tab_autocmd()
   augroup testing
     au WinNew * call add(g:record, 'WinNew')
     au WinClosed * call add(g:record, 'WinClosed')
-    au WinEnter * call add(g:record, 'WinEnter') 
-    au WinLeave * call add(g:record, 'WinLeave') 
+    au WinEnter * call add(g:record, 'WinEnter')
+    au WinLeave * call add(g:record, 'WinLeave')
     au TabNew * call add(g:record, 'TabNew')
     au TabClosed * call add(g:record, 'TabClosed')
     au TabEnter * call add(g:record, 'TabEnter')
@@ -2013,21 +2013,30 @@ func Test_Cmdline()
 
   au! CursorMovedC : let g:pos += [getcmdpos()]
   let g:pos = []
+  call feedkeys(":foo bar baz\<C-W>\<C-W>\<C-W>\<Esc>", 'xt')
+  call assert_equal([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 9, 5, 1], g:pos)
+  let g:pos = []
+  call feedkeys(":hello\<C-B>\<Esc>", 'xt')
+  call assert_equal([2, 3, 4, 5, 6, 1], g:pos)
+  let g:pos = []
+  call feedkeys(":hello\<C-U>\<Esc>", 'xt')
+  call assert_equal([2, 3, 4, 5, 6, 1], g:pos)
+  let g:pos = []
   call feedkeys(":hello\<Left>\<C-R>=''\<CR>\<Left>\<Right>\<Esc>", 'xt')
-  call assert_equal([5, 4, 5], g:pos)
+  call assert_equal([2, 3, 4, 5, 6, 5, 4, 5], g:pos)
   let g:pos = []
   call feedkeys(":12345678\<C-R>=setcmdpos(3)??''\<CR>\<Esc>", 'xt')
-  call assert_equal([3], g:pos)
+  call assert_equal([2, 3, 4, 5, 6, 7, 8, 9, 3], g:pos)
   let g:pos = []
   call feedkeys(":12345678\<C-R>=setcmdpos(3)??''\<CR>\<Left>\<Esc>", 'xt')
-  call assert_equal([3, 2], g:pos)
+  call assert_equal([2, 3, 4, 5, 6, 7, 8, 9, 3, 2], g:pos)
   au! CursorMovedC
 
   " setcmdpos() is no-op inside an autocommand
   au! CursorMovedC : let g:pos += [getcmdpos()] | call setcmdpos(1)
   let g:pos = []
   call feedkeys(":hello\<Left>\<Left>\<Esc>", 'xt')
-  call assert_equal([5, 4], g:pos)
+  call assert_equal([2, 3, 4, 5, 6, 5, 4], g:pos)
   au! CursorMovedC
 
   unlet g:entered
@@ -3761,7 +3770,7 @@ endfunc
 
 func Test_autocmd_split_dummy()
   " Autocommand trying to split a window containing a dummy buffer.
-  auto BufReadPre * exe "sbuf " .. expand("<abuf>") 
+  auto BufReadPre * exe "sbuf " .. expand("<abuf>")
   " Avoid the "W11" prompt
   au FileChangedShell * let v:fcs_choice = 'reload'
   func Xautocmd_changelist()

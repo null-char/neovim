@@ -39,6 +39,7 @@
 #include "nvim/globals.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
+#include "nvim/highlight_group.h"
 #include "nvim/indent.h"
 #include "nvim/indent_c.h"
 #include "nvim/insexpand.h"
@@ -170,6 +171,7 @@ struct compl_S {
   int cp_flags;                  ///< CP_ values
   int cp_number;                 ///< sequence number
   int cp_score;                  ///< fuzzy match score
+  int cp_user_hlattr;            ///< highlight attribute to combine with
 };
 
 /// state information used for getting the next set of insert completion
@@ -762,7 +764,7 @@ int ins_compl_add_infercase(char *str_arg, int len, bool icase, char *fname, Dir
     flags |= CP_ICASE;
   }
 
-  int res = ins_compl_add(str, len, fname, NULL, false, NULL, dir, flags, false);
+  int res = ins_compl_add(str, len, fname, NULL, false, NULL, dir, flags, false, -1);
   xfree(tofree);
   return res;
 }
@@ -802,7 +804,7 @@ static inline void free_cptext(char *const *const cptext)
 ///         returned in case of error.
 static int ins_compl_add(char *const str, int len, char *const fname, char *const *const cptext,
                          const bool cptext_allocated, typval_T *user_data, const Direction cdir,
-                         int flags_arg, const bool adup)
+                         int flags_arg, const bool adup, int user_hlattr)
   FUNC_ATTR_NONNULL_ARG(1)
 {
   compl_T *match;
@@ -868,6 +870,7 @@ static int ins_compl_add(char *const str, int len, char *const fname, char *cons
     match->cp_fname = NULL;
   }
   match->cp_flags = flags;
+  match->cp_user_hlattr = user_hlattr;
 
   if (cptext != NULL) {
     int i;
@@ -1001,7 +1004,7 @@ static void ins_compl_add_matches(int num_matches, char **matches, int icase)
   for (int i = 0; i < num_matches && add_r != FAIL; i++) {
     if ((add_r = ins_compl_add(matches[i], -1, NULL, NULL, false, NULL, dir,
                                CP_FAST | (icase ? CP_ICASE : 0),
-                               false)) == OK) {
+                               false, -1)) == OK) {
       // If dir was BACKWARD then honor it just once.
       dir = FORWARD;
     }
@@ -1240,6 +1243,10 @@ static int ins_compl_build_pum(void)
           did_find_shown_match = true;
           max_fuzzy_score = comp->cp_score;
           compl_shown_match = comp;
+        }
+
+        if (!shown_match_ok && comp == compl_shown_match && !compl_no_select) {
+          cur = i;
           shown_match_ok = true;
         }
 
@@ -1250,8 +1257,6 @@ static int ins_compl_build_pum(void)
         if (!compl_no_select
             && (max_fuzzy_score > 0
                 || (compl_leader == NULL || lead_len == 0))) {
-          shown_match_ok = true;
-          cur = 0;
           if (match_at_original_text(compl_shown_match)) {
             compl_shown_match = shown_compl;
           }
@@ -1266,6 +1271,7 @@ static int ins_compl_build_pum(void)
       compl_match_array[i].pum_kind = comp->cp_text[CPT_KIND];
       compl_match_array[i].pum_info = comp->cp_text[CPT_INFO];
       compl_match_array[i].pum_score = comp->cp_score;
+      compl_match_array[i].pum_user_hlattr = comp->cp_user_hlattr;
       if (comp->cp_text[CPT_MENU] != NULL) {
         compl_match_array[i++].pum_extra = comp->cp_text[CPT_MENU];
       } else {
@@ -1299,6 +1305,7 @@ static int ins_compl_build_pum(void)
     // sort by the largest score of fuzzy match
     qsort(compl_match_array, (size_t)compl_match_arraysize, sizeof(pumitem_T),
           ins_compl_fuzzy_cmp);
+    shown_match_ok = true;
   }
 
   if (!shown_match_ok) {  // no displayed match at all
@@ -2549,6 +2556,8 @@ static int ins_compl_add_tv(typval_T *const tv, const Direction dir, bool fast)
   bool empty = false;
   int flags = fast ? CP_FAST : 0;
   char *(cptext[CPT_COUNT]);
+  char *user_hlname = NULL;
+  int user_hlattr = -1;
   typval_T user_data;
 
   user_data.v_type = VAR_UNKNOWN;
@@ -2558,6 +2567,10 @@ static int ins_compl_add_tv(typval_T *const tv, const Direction dir, bool fast)
     cptext[CPT_MENU] = tv_dict_get_string(tv->vval.v_dict, "menu", true);
     cptext[CPT_KIND] = tv_dict_get_string(tv->vval.v_dict, "kind", true);
     cptext[CPT_INFO] = tv_dict_get_string(tv->vval.v_dict, "info", true);
+    user_hlname = tv_dict_get_string(tv->vval.v_dict, "hl_group", false);
+    if (user_hlname != NULL && *user_hlname != NUL) {
+      user_hlattr = syn_name2attr(user_hlname);
+    }
     tv_dict_get_tv(tv->vval.v_dict, "user_data", &user_data);
 
     if (tv_dict_get_number(tv->vval.v_dict, "icase")) {
@@ -2579,7 +2592,7 @@ static int ins_compl_add_tv(typval_T *const tv, const Direction dir, bool fast)
     return FAIL;
   }
   int status = ins_compl_add((char *)word, -1, NULL, cptext, true,
-                             &user_data, dir, flags, dup);
+                             &user_data, dir, flags, dup, user_hlattr);
   if (status != OK) {
     tv_clear(&user_data);
   }
@@ -2672,7 +2685,7 @@ static void set_completion(colnr_T startcol, list_T *list)
     flags |= CP_ICASE;
   }
   if (ins_compl_add(compl_orig_text, -1, NULL, NULL, false, NULL, 0,
-                    flags | CP_FAST, false) != OK) {
+                    flags | CP_FAST, false, -1) != OK) {
     return;
   }
 
@@ -3417,7 +3430,7 @@ static void get_next_bufname_token(void)
       char *tail = path_tail(b->b_sfname);
       if (strncmp(tail, compl_orig_text, strlen(compl_orig_text)) == 0) {
         ins_compl_add(tail, (int)strlen(tail), NULL, NULL, false, NULL, 0,
-                      p_ic ? CP_ICASE : 0, false);
+                      p_ic ? CP_ICASE : 0, false, -1);
       }
     }
   }
@@ -3648,10 +3661,12 @@ static compl_T *find_comp_when_fuzzy(void)
   const bool is_backward = compl_shows_dir_backward();
   compl_T *comp = NULL;
 
-  if (compl_match_array == NULL
-      || (is_forward && compl_selected_item == compl_match_arraysize - 1)
+  assert(compl_match_array != NULL);
+  if ((is_forward && compl_selected_item == compl_match_arraysize - 1)
       || (is_backward && compl_selected_item == 0)) {
-    return compl_first_match;
+    return compl_first_match != compl_shown_match
+           ? compl_first_match
+           : (compl_first_match->cp_prev ? compl_first_match->cp_prev : NULL);
   }
 
   if (is_forward) {
@@ -4146,7 +4161,7 @@ static int get_cmdline_compl_info(char *line, colnr_T curs_col)
   compl_patternlen = (size_t)curs_col;
   set_cmd_context(&compl_xp, compl_pattern, (int)compl_patternlen, curs_col, false);
   if (compl_xp.xp_context == EXPAND_LUA) {
-    nlua_expand_pat(&compl_xp, compl_xp.xp_pattern);
+    nlua_expand_pat(&compl_xp);
   }
   if (compl_xp.xp_context == EXPAND_UNSUCCESSFUL
       || compl_xp.xp_context == EXPAND_NOTHING) {
@@ -4453,7 +4468,7 @@ static int ins_compl_start(void)
     flags |= CP_ICASE;
   }
   if (ins_compl_add(compl_orig_text, -1, NULL, NULL, false, NULL, 0,
-                    flags, false) != OK) {
+                    flags, false, -1) != OK) {
     XFREE_CLEAR(compl_pattern);
     compl_patternlen = 0;
     XFREE_CLEAR(compl_orig_text);

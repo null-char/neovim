@@ -747,7 +747,7 @@ return {
         		    applying 'breakindent', even if the resulting
         		    text should normally be narrower. This prevents
         		    text indented almost to the right window border
-        		    occupying lot of vertical space when broken.
+        		    occupying lots of vertical space when broken.
         		    (default: 20)
         	shift:{n}   After applying 'breakindent', the wrapped line's
         		    beginning will be shifted by the given number of
@@ -1058,6 +1058,17 @@ return {
         	v:fname_in		name of the input file
         	v:fname_out		name of the output file
         Note that v:fname_in and v:fname_out will never be the same.
+
+        The advantage of using a function call without arguments is that it is
+        faster, see |expr-option-function|.
+
+        If the 'charconvert' expression starts with s: or |<SID>|, then it is
+        replaced with the script ID (|local-function|). Example: >vim
+        	set charconvert=s:MyConvert()
+        	set charconvert=<SID>SomeConvert()
+        <	Otherwise the expression is evaluated in the context of the script
+        where the option was set, thus script-local items are available.
+
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
@@ -3223,6 +3234,9 @@ return {
         <	This will invoke the mylang#Format() function in the
         autoload/mylang.vim file in 'runtimepath'. |autoload|
 
+        The advantage of using a function call without arguments is that it is
+        faster, see |expr-option-function|.
+
         The expression is also evaluated when 'textwidth' is set and adding
         text beyond that limit.  This happens under the same conditions as
         when internal formatting is used.  Make sure the cursor is kept in the
@@ -4157,10 +4171,13 @@ return {
 
         If the expression starts with s: or |<SID>|, then it is replaced with
         the script ID (|local-function|). Example: >vim
-        	setlocal includeexpr=s:MyIncludeExpr(v:fname)
-        	setlocal includeexpr=<SID>SomeIncludeExpr(v:fname)
+        	setlocal includeexpr=s:MyIncludeExpr()
+        	setlocal includeexpr=<SID>SomeIncludeExpr()
         <	Otherwise, the expression is evaluated in the context of the script
         where the option was set, thus script-local items are available.
+
+        It is more efficient if the value is just a function call without
+        arguments, see |expr-option-function|.
 
         The expression will be evaluated in the |sandbox| when set from a
         modeline, see |sandbox-option|.
@@ -4229,7 +4246,7 @@ return {
         in Insert mode as specified with the 'indentkeys' option.
         When this option is not empty, it overrules the 'cindent' and
         'smartindent' indenting.  When 'lisp' is set, this option is
-        is only used when 'lispoptions' contains "expr:1".
+        only used when 'lispoptions' contains "expr:1".
         The expression is evaluated with |v:lnum| set to the line number for
         which the indent is to be computed.  The cursor is also in this line
         when the expression is evaluated (but it may be moved around).
@@ -4240,6 +4257,9 @@ return {
         	set indentexpr=<SID>SomeIndentExpr()
         <	Otherwise, the expression is evaluated in the context of the script
         where the option was set, thus script-local items are available.
+
+        The advantage of using a function call without arguments is that it is
+        faster, see |expr-option-function|.
 
         The expression must return the number of spaces worth of indent.  It
         can return "-1" to keep the current indent (this means 'autoindent' is
@@ -4495,7 +4515,7 @@ return {
     {
       abbreviation = 'jop',
       cb = 'did_set_jumpoptions',
-      defaults = { if_true = '' },
+      defaults = { if_true = 'unload' },
       deny_duplicates = true,
       desc = [=[
         List of words that change the behavior of the |jumplist|.
@@ -4508,6 +4528,9 @@ return {
           view          When moving through the jumplist, |changelist|,
         		|alternate-file| or using |mark-motions| try to
         		restore the |mark-view| in which the action occurred.
+
+          unload        Remove unloaded buffers from the jumplist.
+        		EXPERIMENTAL: this flag may change in the future.
       ]=],
       expand_cb = 'expand_set_jumpoptions',
       full_name = 'jumpoptions',
@@ -4620,7 +4643,7 @@ return {
         part can be in one of two forms:
         1.  A list of pairs.  Each pair is a "from" character immediately
             followed by the "to" character.  Examples: "aA", "aAbBcC".
-        2.  A list of "from" characters, a semi-colon and a list of "to"
+        2.  A list of "from" characters, a semicolon and a list of "to"
             characters.  Example: "abc;ABC"
         Example: "aA,fgh;FGH,cCdDeE"
         Special characters need to be preceded with a backslash.  These are
@@ -4733,7 +4756,7 @@ return {
         update use |:redraw|.
         This may occasionally cause display errors.  It is only meant to be set
         temporarily when performing an operation where redrawing may cause
-        flickering or cause a slow down.
+        flickering or cause a slowdown.
       ]=],
       full_name = 'lazyredraw',
       scope = { 'global' },
@@ -5714,6 +5737,20 @@ return {
         	    (without "unsigned" it would become "9-2019").
         	    Using CTRL-X on "0" or CTRL-A on "18446744073709551615"
         	    (2^64 - 1) has no effect, overflow is prevented.
+        blank	If included, treat numbers as signed or unsigned based on
+        	preceding whitespace.  If a number with a leading dash has its
+        	dash immediately preceded by a non-whitespace character (i.e.,
+        	not a tab or a " "), the negative sign won't be considered as
+        	part of the number.  For example:
+        	    Using CTRL-A on "14" in "Carbon-14" results in "Carbon-15"
+        	    (without "blank" it would become "Carbon-13").
+        	    Using CTRL-X on "8" in "Carbon -8" results in "Carbon -9"
+        	    (because -8 is preceded by whitespace.  If "unsigned" was
+        	    set, it would result in "Carbon -7").
+        	If this format is included, overflow is prevented as if
+        	"unsigned" were set.  If both this format and "unsigned" are
+        	included, "unsigned" will take precedence.
+
         Numbers which simply begin with a digit in the range 1-9 are always
         considered decimal.  This also happens for numbers that are not
         recognized as octal or hex.
@@ -5995,7 +6032,7 @@ return {
         	set path+=
         <	To use an environment variable, you probably need to replace the
         separator.  Here is an example to append $INCL, in which directory
-        names are separated with a semi-colon: >vim
+        names are separated with a semicolon: >vim
         	let &path = &path .. "," .. substitute($INCL, ';', ',', 'g')
         <	Replace the ';' with a ':' or whatever separator is used.  Note that
         this doesn't work when $INCL contains a comma or white space.
@@ -7311,7 +7348,7 @@ return {
       defaults = { if_true = 'ltToOCF' },
       desc = [=[
         This option helps to avoid all the |hit-enter| prompts caused by file
-        messages, for example  with CTRL-G, and to avoid some other messages.
+        messages, for example with CTRL-G, and to avoid some other messages.
         It is a list of flags:
          flag	meaning when present	~
           l	use "999L, 888B" instead of "999 lines, 888 bytes"	*shm-l*
@@ -7904,7 +7941,7 @@ return {
         		minus two.
 
         timeout:{millisec}   Limit the time searching for suggestions to
-        		{millisec} milli seconds.  Applies to the following
+        		{millisec} milliseconds.  Applies to the following
         		methods.  When omitted the limit is 5000. When
         		negative there is no limit.
 
@@ -7924,9 +7961,11 @@ return {
         		The file is used for all languages.
 
         expr:{expr}	Evaluate expression {expr}.  Use a function to avoid
-        		trouble with spaces.  |v:val| holds the badly spelled
-        		word.  The expression must evaluate to a List of
-        		Lists, each with a suggestion and a score.
+        		trouble with spaces.  Best is to call a function
+        		without arguments, see |expr-option-function|.
+        		|v:val| holds the badly spelled word.  The expression
+        		must evaluate to a List of Lists, each with a
+        		suggestion and a score.
         		Example:
         			[['the', 33], ['that', 44]] ~
         		Set 'verbose' and use |z=| to see the scores that the
@@ -8488,6 +8527,30 @@ return {
       short_desc = N_('syntax to be loaded for current buffer'),
       type = 'string',
       varname = 'p_syn',
+    },
+    {
+      abbreviation = 'tcl',
+      cb = 'did_set_tabclose',
+      defaults = { if_true = '' },
+      deny_duplicates = true,
+      desc = [=[
+        This option controls the behavior when closing tab pages (e.g., using
+        |:tabclose|).  When empty Vim goes to the next (right) tab page.
+
+        Possible values (comma-separated list):
+           left		If included, go to the previous tab page instead of
+        		the next one.
+           uselast	If included, go to the previously used tab page if
+        		possible.  This option takes precedence over the
+        		others.
+      ]=],
+      expand_cb = 'expand_set_tabclose',
+      full_name = 'tabclose',
+      list = 'onecomma',
+      scope = { 'global' },
+      short_desc = N_('which tab page to focus when closing a tab'),
+      type = 'string',
+      varname = 'p_tcl',
     },
     {
       abbreviation = 'tal',
@@ -9848,7 +9911,6 @@ return {
       ]=],
       full_name = 'winfixbuf',
       pv_name = 'p_wfb',
-      redraw = { 'current_window' },
       scope = { 'window' },
       short_desc = N_('pin a window to a specific buffer'),
       type = 'boolean',

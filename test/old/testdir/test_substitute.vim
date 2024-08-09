@@ -743,7 +743,7 @@ func Test_sub_highlight_zero_match()
 endfunc
 
 func Test_nocatch_sub_failure_handling()
-  " normal error results in all replacements 
+  " normal error results in all replacements
   func Foo()
     foobar
   endfunc
@@ -892,7 +892,7 @@ func Test_sub_with_no_last_pat()
     call writefile(v:errors, 'Xresult')
     qall!
   [SCRIPT]
-  call writefile(lines, 'Xscript')
+  call writefile(lines, 'Xscript', 'D')
   if RunVim([], [], '--clean -S Xscript')
     call assert_equal([], readfile('Xresult'))
   endif
@@ -909,7 +909,6 @@ func Test_sub_with_no_last_pat()
   "   call assert_equal([], readfile('Xresult'))
   " endif
 
-  call delete('Xscript')
   call delete('Xresult')
 endfunc
 
@@ -1110,13 +1109,12 @@ func Test_sub_open_cmdline_win()
     redir END
     qall!
   [SCRIPT]
-  call writefile(lines, 'Xscript')
+  call writefile(lines, 'Xscript', 'D')
   if RunVim([], [], '-u NONE -S Xscript')
     call assert_match('E565: Not allowed to change text or change window',
           \ readfile('Xresult')->join('XX'))
   endif
 
-  call delete('Xscript')
   call delete('Xresult')
 endfunc
 
@@ -1507,6 +1505,20 @@ func Test_substitute_expr_recursive()
   delfunc R
   delfunc Q
   exe bufnr .. "bw!"
+endfunc
+
+" Test for changing 'cpo' in a substitute expression
+func Test_substitute_expr_cpo()
+  func XSubExpr()
+    set cpo=
+    return 'x'
+  endfunc
+
+  let save_cpo = &cpo
+  call assert_equal('xxx', substitute('abc', '.', '\=XSubExpr()', 'g'))
+  call assert_equal(save_cpo, &cpo)
+
+  delfunc XSubExpr
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab

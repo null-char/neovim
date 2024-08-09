@@ -401,22 +401,16 @@ int init_sign_text(sign_T *sp, schar_T *sign_text, char *text)
 
 /// Define a new sign or update an existing sign
 static int sign_define_by_name(char *name, char *icon, char *text, char *linehl, char *texthl,
-                               char *culhl, char *numhl)
+                               char *culhl, char *numhl, int prio)
 {
   cstr_t *key;
-  sign_T **sp = (sign_T **)pmap_put_ref(cstr_t)(&sign_map, name, &key, NULL);
+  bool new_sign = false;
+  sign_T **sp = (sign_T **)pmap_put_ref(cstr_t)(&sign_map, name, &key, &new_sign);
 
-  if (*sp == NULL) {
+  if (new_sign) {
     *key = xstrdup(name);
     *sp = xcalloc(1, sizeof(sign_T));
     (*sp)->sn_name = (char *)(*key);
-  } else {
-    // Signs may already exist, a redraw is needed in windows with a non-empty sign list.
-    FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
-      if (buf_has_signs(wp->w_buffer)) {
-        redraw_buf_later(wp->w_buffer, UPD_NOT_VALID);
-      }
-    }
   }
 
   // Set values for a defined sign.
@@ -431,6 +425,8 @@ static int sign_define_by_name(char *name, char *icon, char *text, char *linehl,
     return FAIL;
   }
 
+  (*sp)->sn_priority = prio;
+
   char *arg[] = { linehl, texthl, culhl, numhl };
   int *hl[] = { &(*sp)->sn_line_hl, &(*sp)->sn_text_hl, &(*sp)->sn_cul_hl, &(*sp)->sn_num_hl };
   for (int i = 0; i < 4; i++) {
@@ -439,6 +435,28 @@ static int sign_define_by_name(char *name, char *icon, char *text, char *linehl,
     }
   }
 
+  // Update already placed signs and redraw if necessary when modifying a sign.
+  if (!new_sign) {
+    bool did_redraw = false;
+    for (size_t i = 0; i < kv_size(decor_items); i++) {
+      DecorSignHighlight *sh = &kv_A(decor_items, i);
+      if (sh->sign_name && strcmp(sh->sign_name, name) == 0) {
+        memcpy(sh->text, (*sp)->sn_text, SIGN_WIDTH * sizeof(schar_T));
+        sh->hl_id = (*sp)->sn_text_hl;
+        sh->line_hl_id = (*sp)->sn_line_hl;
+        sh->number_hl_id = (*sp)->sn_num_hl;
+        sh->cursorline_hl_id = (*sp)->sn_cul_hl;
+        if (!did_redraw) {
+          FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
+            if (buf_has_signs(wp->w_buffer)) {
+              redraw_buf_later(wp->w_buffer, UPD_NOT_VALID);
+            }
+          }
+          did_redraw = true;
+        }
+      }
+    }
+  }
   return OK;
 }
 
@@ -471,6 +489,11 @@ static void sign_list_defined(sign_T *sp)
     char buf[SIGN_WIDTH * MAX_SCHAR_SIZE];
     describe_sign_text(buf, sp->sn_text);
     msg_outtrans(buf, 0);
+  }
+  if (sp->sn_priority > 0) {
+    char lbuf[MSG_BUF_LEN];
+    vim_snprintf(lbuf, MSG_BUF_LEN, " priority=%d", sp->sn_priority);
+    msg_puts(lbuf);
   }
   static char *arg[] = { " linehl=", " texthl=", " culhl=", " numhl=" };
   int hl[] = { sp->sn_line_hl, sp->sn_text_hl, sp->sn_cul_hl, sp->sn_num_hl };
@@ -506,6 +529,11 @@ static int sign_place(uint32_t *id, char *group, char *name, buf_T *buf, linenr_
   if (sp == NULL) {
     semsg(_("E155: Unknown sign: %s"), name);
     return FAIL;
+  }
+
+  // Use the default priority value for this sign.
+  if (prio == -1) {
+    prio = (sp->sn_priority != -1) ? sp->sn_priority : SIGN_DEF_PRIO;
   }
 
   if (lnum > 0) {
@@ -602,6 +630,7 @@ static void sign_define_cmd(char *name, char *cmdline)
   char *texthl = NULL;
   char *culhl = NULL;
   char *numhl = NULL;
+  int prio = -1;
 
   // set values for a defined sign.
   while (true) {
@@ -622,6 +651,8 @@ static void sign_define_cmd(char *name, char *cmdline)
       culhl = arg + 6;
     } else if (strncmp(arg, "numhl=", 6) == 0) {
       numhl = arg + 6;
+    } else if (strncmp(arg, "priority=", 9) == 0) {
+      prio = atoi(arg + 9);
     } else {
       semsg(_(e_invarg2), arg);
       return;
@@ -632,7 +663,7 @@ static void sign_define_cmd(char *name, char *cmdline)
     *cmdline++ = NUL;
   }
 
-  sign_define_by_name(name, icon, text, linehl, texthl, culhl, numhl);
+  sign_define_by_name(name, icon, text, linehl, texthl, culhl, numhl, prio);
 }
 
 /// ":sign place" command
@@ -847,7 +878,7 @@ void ex_sign(exarg_T *eap)
     linenr_T lnum = -1;
     char *name = NULL;
     char *group = NULL;
-    int prio = SIGN_DEF_PRIO;
+    int prio = -1;
     buf_T *buf = NULL;
 
     // Parse command line arguments
@@ -879,6 +910,9 @@ static dict_T *sign_get_info_dict(sign_T *sp)
     char buf[SIGN_WIDTH * MAX_SCHAR_SIZE];
     describe_sign_text(buf, sp->sn_text);
     tv_dict_add_str(d, S_LEN("text"), buf);
+  }
+  if (sp->sn_priority > 0) {
+    tv_dict_add_nr(d, S_LEN("priority"), sp->sn_priority);
   }
   static char *arg[] = { "linehl", "texthl", "culhl", "numhl" };
   int hl[] = { sp->sn_line_hl, sp->sn_text_hl, sp->sn_cul_hl, sp->sn_num_hl };
@@ -1044,7 +1078,8 @@ char *get_sign_name(expand_T *xp, int idx)
   case EXP_SUBCMD:
     return cmds[idx];
   case EXP_DEFINE: {
-    char *define_arg[] = { "culhl=", "icon=", "linehl=", "numhl=", "text=", "texthl=", NULL };
+    char *define_arg[] = { "culhl=", "icon=", "linehl=", "numhl=", "text=", "texthl=",
+                           "priority=", NULL };
     return define_arg[idx];
   }
   case EXP_PLACE: {
@@ -1200,6 +1235,7 @@ static int sign_define_from_dict(char *name, dict_T *dict)
   char *texthl = NULL;
   char *culhl = NULL;
   char *numhl = NULL;
+  int prio = -1;
 
   if (dict != NULL) {
     icon = tv_dict_get_string(dict, "icon", false);
@@ -1208,9 +1244,10 @@ static int sign_define_from_dict(char *name, dict_T *dict)
     texthl = tv_dict_get_string(dict, "texthl", false);
     culhl = tv_dict_get_string(dict, "culhl", false);
     numhl = tv_dict_get_string(dict, "numhl", false);
+    prio = (int)tv_dict_get_number_def(dict, "priority", -1);
   }
 
-  return sign_define_by_name(name, icon, text, linehl, texthl, culhl, numhl) - 1;
+  return sign_define_by_name(name, icon, text, linehl, texthl, culhl, numhl, prio) - 1;
 }
 
 /// Define multiple signs using attributes from list 'l' and store the return
@@ -1442,7 +1479,7 @@ static int sign_place_from_dict(typval_T *id_tv, typval_T *group_tv, typval_T *n
     }
   }
 
-  int prio = SIGN_DEF_PRIO;
+  int prio = -1;
   di = tv_dict_find(dict, "priority", -1);
   if (di != NULL) {
     prio = (int)tv_get_number_chk(&di->di_tv, &notanum);

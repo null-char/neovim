@@ -213,9 +213,7 @@ void diff_buf_add(buf_T *buf)
   semsg(_("E96: Cannot diff more than %" PRId64 " buffers"), (int64_t)DB_COUNT);
 }
 
-///
 /// Remove all buffers to make diffs for.
-///
 static void diff_buf_clear(void)
 {
   for (int i = 0; i < DB_COUNT; i++) {
@@ -367,7 +365,6 @@ static void diff_mark_adjust_tp(tabpage_T *tp, int idx, linenr_T line1, linenr_T
       break;
     }
 
-    //
     // Check for these situations:
     //    1  2  3
     //    1  2  3
@@ -697,7 +694,7 @@ void diff_redraw(bool dofold)
 
     if (((wp != curwin) && (wp->w_topfill > 0)) || (n > 0)) {
       if (wp->w_topfill > n) {
-        wp->w_topfill = (n < 0 ? 0 : n);
+        wp->w_topfill = MAX(n, 0);
       } else if ((n > 0) && (n > wp->w_topfill)) {
         wp->w_topfill = n;
         if (wp == curwin) {
@@ -835,7 +832,6 @@ static int diff_write(buf_T *buf, diffin_T *din)
   return r;
 }
 
-///
 /// Update the diffs for all buffers involved.
 ///
 /// @param dio
@@ -909,20 +905,16 @@ theend:
   xfree(dio->dio_diff.dout_fname);
 }
 
-///
 /// Return true if the options are set to use the internal diff library.
 /// Note that if the internal diff failed for one of the buffers, the external
 /// diff will be used anyway.
-///
 int diff_internal(void)
   FUNC_ATTR_PURE
 {
   return (diff_flags & DIFF_INTERNAL) != 0 && *p_dex == NUL;
 }
 
-///
 /// Return true if the internal diff failed for one of the diff buffers.
-///
 static int diff_internal_failed(void)
 {
   // Only need to do something when there is another buffer.
@@ -1003,11 +995,9 @@ theend:
   }
 }
 
-///
 /// Do a quick test if "diff" really works.  Otherwise it looks like there
 /// are no differences.  Can't use the return value, it's non-zero when
 /// there are differences.
-///
 static int check_external_diff(diffio_T *diffio)
 {
   // May try twice, first with "-a" and then without.
@@ -1091,9 +1081,7 @@ static int check_external_diff(diffio_T *diffio)
   return OK;
 }
 
-///
 /// Invoke the xdiff function.
-///
 static int diff_file_internal(diffio_T *diffio)
 {
   xpparam_t param;
@@ -1813,9 +1801,7 @@ void diff_clear(tabpage_T *tp)
   tp->tp_first_diff = NULL;
 }
 
-///
-/// return true if the options are set to use diff linematch
-///
+/// Return true if the options are set to use diff linematch.
 bool diff_linematch(diff_T *dp)
 {
   if (!(diff_flags & DIFF_LINEMATCH)) {
@@ -2157,7 +2143,11 @@ int diff_check_with_linestatus(win_T *wp, linenr_T lnum, int *linestatus)
     return 0;
   }
 
-  if (!dp->is_linematched && diff_linematch(dp)) {
+  // Don't run linematch when lnum is offscreen.
+  // Useful for scrollbind calculations which need to count all the filler lines
+  // above the screen.
+  if (lnum >= wp->w_topline && lnum < wp->w_botline
+      && !dp->is_linematched && diff_linematch(dp)) {
     run_linematch_algorithm(dp);
   }
 
@@ -2693,9 +2683,7 @@ bool diff_find_change(win_T *wp, linenr_T lnum, int *startp, int *endp)
       si_org -= utf_head_off(line_org, line_org + si_org);
       si_new -= utf_head_off(line_new, line_new + si_new);
 
-      if (*startp > si_org) {
-        *startp = si_org;
-      }
+      *startp = MIN(*startp, si_org);
 
       // Search for end of difference, if any.
       if ((line_org[si_org] != NUL) || (line_new[si_new] != NUL)) {
@@ -2735,9 +2723,7 @@ bool diff_find_change(win_T *wp, linenr_T lnum, int *startp, int *endp)
           }
         }
 
-        if (*endp < ei_org) {
-          *endp = ei_org;
-        }
+        *endp = MAX(*endp, ei_org);
       }
     }
   }
@@ -3065,19 +3051,11 @@ static void diffgetput(const int addr_count, const int idx_cur, const int idx_fr
           // range ends above end of current/from diff block
           if (idx_cur == idx_from) {
             // :diffput
-            int i = dp->df_count[idx_cur] - start_skip - end_skip;
-
-            if (count > i) {
-              count = i;
-            }
+            count = MIN(count, dp->df_count[idx_cur] - start_skip - end_skip);
           } else {
             // :diffget
             count -= end_skip;
-            end_skip = dp->df_count[idx_from] - start_skip - count;
-
-            if (end_skip < 0) {
-              end_skip = 0;
-            }
+            end_skip = MAX(dp->df_count[idx_from] - start_skip - count, 0);
           }
         } else {
           end_skip = 0;
@@ -3263,9 +3241,7 @@ int diff_move_to(int dir, int count)
   }
 
   // don't end up past the end of the file
-  if (lnum > curbuf->b_ml.ml_line_count) {
-    lnum = curbuf->b_ml.ml_line_count;
-  }
+  lnum = MIN(lnum, curbuf->b_ml.ml_line_count);
 
   // When the cursor didn't move at all we fail.
   if (lnum == curwin->w_cursor.lnum) {
@@ -3311,10 +3287,7 @@ static linenr_T diff_get_corresponding_line_int(buf_T *buf1, linenr_T lnum1)
     if ((dp->df_lnum[idx1] + dp->df_count[idx1]) > lnum1) {
       // Inside the diffblock
       baseline = lnum1 - dp->df_lnum[idx1];
-
-      if (baseline > dp->df_count[idx2]) {
-        baseline = dp->df_count[idx2];
-      }
+      baseline = MIN(baseline, dp->df_count[idx2]);
 
       return dp->df_lnum[idx2] + baseline;
     }
@@ -3349,10 +3322,7 @@ linenr_T diff_get_corresponding_line(buf_T *buf1, linenr_T lnum1)
   linenr_T lnum = diff_get_corresponding_line_int(buf1, lnum1);
 
   // don't end up past the end of the file
-  if (lnum > curbuf->b_ml.ml_line_count) {
-    return curbuf->b_ml.ml_line_count;
-  }
-  return lnum;
+  return MIN(lnum, curbuf->b_ml.ml_line_count);
 }
 
 /// For line "lnum" in the current window find the equivalent lnum in window
@@ -3395,10 +3365,7 @@ linenr_T diff_lnum_win(linenr_T lnum, win_T *wp)
   }
 
   linenr_T n = lnum + (dp->df_lnum[i] - dp->df_lnum[idx]);
-  if (n > dp->df_lnum[i] + dp->df_count[i]) {
-    n = dp->df_lnum[i] + dp->df_count[i];
-  }
-  return n;
+  return MIN(n, dp->df_lnum[i] + dp->df_count[i]);
 }
 
 /// Handle an ED style diff line.

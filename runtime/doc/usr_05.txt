@@ -120,7 +120,7 @@ This switches on three very clever mechanisms:
 				*restore-cursor* *last-position-jump*  >
     augroup RestoreCursor
       autocmd!
-      autocmd BufRead * autocmd FileType <buffer> ++once
+      autocmd BufReadPre * autocmd FileType <buffer> ++once
         \ let s:line = line("'\"")
         \ | if s:line >= 1 && s:line <= line("$") && &filetype !~# 'commit'
         \      && index(['xxd', 'gitrebase'], &filetype) == -1
@@ -240,7 +240,8 @@ Adding nohlsearch package				*nohlsearch-install*
 Load the plugin with this command: >
 	packadd nohlsearch
 <
-Automatically execute |:nohlsearch| after 'updatetime' or getting into |Insert| mode.
+Automatically execute |:nohlsearch| after 'updatetime' or getting into
+|Insert| mode.
 Thus assuming default updatetime, hlsearch would be suspended/turned off after
 4 seconds of idle time.
 
