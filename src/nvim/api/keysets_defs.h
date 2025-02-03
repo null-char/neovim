@@ -29,7 +29,7 @@ typedef struct {
   Integer end_line;
   Integer end_row;
   Integer end_col;
-  HLGroupID hl_group;
+  Object hl_group;
   Array virt_text;
   String virt_text_pos;
   Integer virt_text_win_col;
@@ -263,6 +263,7 @@ typedef struct {
   Union(Integer, String) group;
   Union(String, ArrayOf(String)) pattern;
   Union(Integer, ArrayOf(Integer)) buffer;
+  Integer id;
 } Dict(get_autocmds);
 
 typedef struct {

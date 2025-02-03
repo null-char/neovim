@@ -139,7 +139,7 @@ local function tokens_to_ranges(data, bufnr, client, request)
 
     if token_type then
       local modifiers = modifiers_from_number(data[i + 4], token_modifiers)
-      local end_char = start_char + data[i + 2]
+      local end_char = start_char + data[i + 2] --- @type integer LuaLS bug
       local buf_line = lines and lines[line + 1] or ''
       local start_col = vim.str_byteindex(buf_line, encoding, start_char, false)
       local end_col = vim.str_byteindex(buf_line, encoding, end_char, false)
@@ -166,7 +166,7 @@ function STHighlighter.new(bufnr)
   local self = setmetatable({}, { __index = STHighlighter })
 
   self.bufnr = bufnr
-  self.augroup = api.nvim_create_augroup('vim_lsp_semantic_tokens:' .. bufnr, { clear = true })
+  self.augroup = api.nvim_create_augroup('nvim.lsp.semantic_tokens:' .. bufnr, { clear = true })
   self.client_state = {}
 
   STHighlighter.active[bufnr] = self
@@ -225,7 +225,7 @@ function STHighlighter:attach(client_id)
   local state = self.client_state[client_id]
   if not state then
     state = {
-      namespace = api.nvim_create_namespace('vim_lsp_semantic_tokens:' .. client_id),
+      namespace = api.nvim_create_namespace('nvim.lsp.semantic_tokens:' .. client_id),
       active_request = {},
       current_result = {},
     }
@@ -805,7 +805,7 @@ function M._refresh(err, _, ctx)
   return vim.NIL
 end
 
-local namespace = api.nvim_create_namespace('vim_lsp_semantic_tokens')
+local namespace = api.nvim_create_namespace('nvim.lsp.semantic_tokens')
 api.nvim_set_decoration_provider(namespace, {
   on_win = function(_, _, bufnr, topline, botline)
     local highlighter = STHighlighter.active[bufnr]

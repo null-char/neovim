@@ -20,7 +20,7 @@ local function client_positional_params(params)
   end
 end
 
-local hover_ns = api.nvim_create_namespace('vim_lsp_hover_range')
+local hover_ns = api.nvim_create_namespace('nvim.lsp.hover_range')
 
 --- @class vim.lsp.buf.hover.Opts : vim.lsp.util.open_floating_preview.Opts
 --- @field silent? boolean
@@ -252,13 +252,13 @@ end
 --- vim.lsp.buf.definition({ on_list = on_list })
 --- vim.lsp.buf.references(nil, { on_list = on_list })
 --- ```
+--- @field on_list? fun(t: vim.lsp.LocationOpts.OnList)
 ---
---- If you prefer loclist instead of qflist:
+--- Whether to use the |location-list| or the |quickfix| list in the default handler.
 --- ```lua
 --- vim.lsp.buf.definition({ loclist = true })
---- vim.lsp.buf.references(nil, { loclist = true })
+--- vim.lsp.buf.references(nil, { loclist = false })
 --- ```
---- @field on_list? fun(t: vim.lsp.LocationOpts.OnList)
 --- @field loclist? boolean
 
 --- @class vim.lsp.LocationOpts.OnList
@@ -324,7 +324,7 @@ local function process_signature_help_results(results)
   return signatures
 end
 
-local sig_help_ns = api.nvim_create_namespace('vim_lsp_signature_help')
+local sig_help_ns = api.nvim_create_namespace('nvim.lsp.signature_help')
 
 --- @class vim.lsp.buf.signature_help.Opts : vim.lsp.util.open_floating_preview.Opts
 --- @field silent? boolean
@@ -423,7 +423,7 @@ end
 ---
 ---@see vim.lsp.protocol.CompletionTriggerKind
 function M.completion(context)
-  vim.depends('vim.lsp.buf.completion', 'vim.lsp.commpletion.trigger', '0.12')
+  vim.depends('vim.lsp.buf.completion', 'vim.lsp.completion.trigger', '0.12')
   return lsp.buf_request(
     0,
     ms.textDocument_completion,
@@ -450,10 +450,10 @@ local function range_from_selection(bufnr, mode)
   -- A user can start visual selection at the end and move backwards
   -- Normalize the range to start < end
   if start_row == end_row and end_col < start_col then
-    end_col, start_col = start_col, end_col
+    end_col, start_col = start_col, end_col --- @type integer, integer
   elseif end_row < start_row then
-    start_row, end_row = end_row, start_row
-    start_col, end_col = end_col, start_col
+    start_row, end_row = end_row, start_row --- @type integer, integer
+    start_col, end_col = end_col, start_col --- @type integer, integer
   end
   if mode == 'V' then
     start_col = 1
@@ -553,25 +553,30 @@ function M.format(opts)
 
   --- @param client vim.lsp.Client
   --- @param params lsp.DocumentFormattingParams
-  --- @return lsp.DocumentFormattingParams
+  --- @return lsp.DocumentFormattingParams|lsp.DocumentRangeFormattingParams|lsp.DocumentRangesFormattingParams
   local function set_range(client, params)
-    local to_lsp_range = function(r) ---@return lsp.DocumentRangeFormattingParams|lsp.DocumentRangesFormattingParams
+    ---  @param r {start:[integer,integer],end:[integer, integer]}
+    local function to_lsp_range(r)
       return util.make_given_range_params(r.start, r['end'], bufnr, client.offset_encoding).range
     end
 
+    local ret = params --[[@as lsp.DocumentFormattingParams|lsp.DocumentRangeFormattingParams|lsp.DocumentRangesFormattingParams]]
     if passed_multiple_ranges then
-      params.ranges = vim.tbl_map(to_lsp_range, range)
+      ret = params --[[@as lsp.DocumentRangesFormattingParams]]
+      --- @cast range {start:[integer,integer],end:[integer, integer]}
+      ret.ranges = vim.tbl_map(to_lsp_range, range)
     elseif range then
-      params.range = to_lsp_range(range)
+      ret = params --[[@as lsp.DocumentRangeFormattingParams]]
+      ret.range = to_lsp_range(range)
     end
-    return params
+    return ret
   end
 
   if opts.async then
-    --- @param idx integer
-    --- @param client vim.lsp.Client
+    --- @param idx? integer
+    --- @param client? vim.lsp.Client
     local function do_format(idx, client)
-      if not client then
+      if not idx or not client then
         return
       end
       local params = set_range(client, util.make_formatting_params(opts.formatting_options))
@@ -650,16 +655,16 @@ function M.rename(new_name, opts)
     )[1]
   end
 
-  --- @param idx integer
+  --- @param idx? integer
   --- @param client? vim.lsp.Client
   local function try_use_client(idx, client)
-    if not client then
+    if not idx or not client then
       return
     end
 
     --- @param name string
     local function rename(name)
-      local params = util.make_position_params(win, client.offset_encoding)
+      local params = util.make_position_params(win, client.offset_encoding) --[[@as lsp.RenameParams]]
       params.newName = name
       local handler = client.handlers[ms.textDocument_rename]
         or lsp.handlers[ms.textDocument_rename]
@@ -796,9 +801,10 @@ function M.references(context, opts)
   end
 end
 
---- Lists all symbols in the current buffer in the quickfix window.
+--- Lists all symbols in the current buffer in the |location-list|.
 --- @param opts? vim.lsp.ListOpts
 function M.document_symbol(opts)
+  opts = vim.tbl_deep_extend('keep', opts or {}, { loclist = true })
   local params = { textDocument = util.make_text_document_params() }
   request_with_opts(ms.textDocument_documentSymbol, params, opts)
 end
@@ -1228,6 +1234,7 @@ function M.code_action(opts)
   for _, client in ipairs(clients) do
     ---@type lsp.CodeActionParams
     local params
+
     if opts.range then
       assert(type(opts.range) == 'table', 'code_action range must be a table')
       local start = assert(opts.range.start, 'range must have a `start` property')
@@ -1240,6 +1247,9 @@ function M.code_action(opts)
     else
       params = util.make_range_params(win, client.offset_encoding)
     end
+
+    --- @cast params lsp.CodeActionParams
+
     if context.diagnostics then
       params.context = context
     else

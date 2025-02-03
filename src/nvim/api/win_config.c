@@ -101,10 +101,12 @@
 /// @param config Map defining the window configuration. Keys:
 ///   - relative: Sets the window layout to "floating", placed at (row,col)
 ///                 coordinates relative to:
-///      - "editor" The global editor grid
-///      - "win"    Window given by the `win` field, or current window.
-///      - "cursor" Cursor position in current window.
-///      - "mouse"  Mouse position
+///      - "cursor"     Cursor position in current window.
+///      - "editor"     The global editor grid.
+///      - "laststatus" 'laststatus' if present, or last row.
+///      - "mouse"      Mouse position.
+///      - "tabline"    Tabline if present, or first row.
+///      - "win"        Window given by the `win` field, or current window.
 ///   - win: |window-ID| window to split, or relative window when creating a
 ///      float (relative="win").
 ///   - anchor: Decides which corner of the float to place at (row,col):
@@ -699,7 +701,9 @@ Dict(win_config) nvim_win_get_config(Window window, Arena *arena, Error *err)
   FUNC_API_SINCE(6)
 {
   /// Keep in sync with FloatRelative in buffer_defs.h
-  static const char *const float_relative_str[] = { "editor", "win", "cursor", "mouse" };
+  static const char *const float_relative_str[] = {
+    "editor", "win", "cursor", "mouse", "tabline", "laststatus"
+  };
 
   /// Keep in sync with WinSplit in buffer_defs.h
   static const char *const win_split_str[] = { "left", "right", "above", "below" };
@@ -805,6 +809,10 @@ static bool parse_float_relative(String relative, FloatRelative *out)
     *out = kFloatRelativeCursor;
   } else if (striequal(str, "mouse")) {
     *out = kFloatRelativeMouse;
+  } else if (striequal(str, "tabline")) {
+    *out = kFloatRelativeTabline;
+  } else if (striequal(str, "laststatus")) {
+    *out = kFloatRelativeLaststatus;
   } else {
     return false;
   }
@@ -887,7 +895,7 @@ static void parse_bordertext(Object bordertext, BorderTextType bordertext_type, 
   *is_present = true;
 }
 
-static bool parse_bordertext_pos(String bordertext_pos, BorderTextType bordertext_type,
+static bool parse_bordertext_pos(win_T *wp, String bordertext_pos, BorderTextType bordertext_type,
                                  WinConfig *fconfig, Error *err)
 {
   AlignTextPos *align;
@@ -901,7 +909,9 @@ static bool parse_bordertext_pos(String bordertext_pos, BorderTextType bordertex
   }
 
   if (bordertext_pos.size == 0) {
-    *align = kAlignLeft;
+    if (!wp) {
+      *align = kAlignLeft;
+    }
     return true;
   }
 
@@ -1242,7 +1252,7 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
     }
 
     // handles unset 'title_pos' same as empty string
-    if (!parse_bordertext_pos(config->title_pos, kBorderTextTitle, fconfig, err)) {
+    if (!parse_bordertext_pos(wp, config->title_pos, kBorderTextTitle, fconfig, err)) {
       goto fail;
     }
   } else {
@@ -1269,7 +1279,7 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
     }
 
     // handles unset 'footer_pos' same as empty string
-    if (!parse_bordertext_pos(config->footer_pos, kBorderTextFooter, fconfig, err)) {
+    if (!parse_bordertext_pos(wp, config->footer_pos, kBorderTextFooter, fconfig, err)) {
       goto fail;
     }
   } else {

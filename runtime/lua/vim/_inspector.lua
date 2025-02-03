@@ -1,3 +1,5 @@
+--- @diagnostic disable:no-unknown
+
 --- @class vim._inspector.Filter
 --- @inlinedoc
 ---
@@ -78,6 +80,7 @@ function vim.inspect_pos(bufnr, row, col, filter)
   -- treesitter
   if filter.treesitter then
     for _, capture in pairs(vim.treesitter.get_captures_at_pos(bufnr, row, col)) do
+      --- @diagnostic disable-next-line: inject-field
       capture.hl_group = '@' .. capture.capture .. '.' .. capture.lang
       results.treesitter[#results.treesitter + 1] = resolve_hl(capture)
     end
@@ -128,13 +131,13 @@ function vim.inspect_pos(bufnr, row, col, filter)
 
   if filter.semantic_tokens then
     results.semantic_tokens = vim.tbl_filter(function(extmark)
-      return extmark.ns:find('vim_lsp_semantic_tokens') == 1
+      return extmark.ns:find('nvim.lsp.semantic_tokens') == 1
     end, extmarks)
   end
 
   if filter.extmarks then
     results.extmarks = vim.tbl_filter(function(extmark)
-      return extmark.ns:find('vim_lsp_semantic_tokens') ~= 1
+      return extmark.ns:find('nvim.lsp.semantic_tokens') ~= 1
         and (filter.extmarks == 'all' or extmark.opts.hl_group)
     end, extmarks)
   end

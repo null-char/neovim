@@ -254,11 +254,11 @@ describe('ui/ext_messages', function()
         {
           content = {
             { '\n@character     ' },
-            { 'xxx', 26, 150 },
+            { 'xxx', 26, 155 },
             { ' ' },
             { 'links to', 18, 5 },
             { ' Character\n@character.special ' },
-            { 'xxx', 16, 151 },
+            { 'xxx', 16, 156 },
             { ' ' },
             { 'links to', 18, 5 },
             { ' SpecialChar' },
@@ -319,14 +319,109 @@ describe('ui/ext_messages', function()
     -- kind=echoerr for nvim_echo() err
     feed(':call nvim_echo([["Error"], ["Message", "Special"]], 1, #{ err:1 })<CR>')
     screen:expect({
-      cmdline = { {
-        abort = false,
-      } },
+      cmdline = { { abort = false } },
       messages = {
         {
           content = { { 'Error', 9, 6 }, { 'Message', 16, 99 } },
           history = true,
           kind = 'echoerr',
+        },
+      },
+    })
+
+    -- kind=verbose for nvim_echo() verbose
+    feed(':call nvim_echo([["Verbose Message"]], 1, #{ verbose:1 })<CR>')
+    screen:expect({
+      cmdline = { { abort = false } },
+      messages = {
+        {
+          content = { { 'Verbose Message' } },
+          history = true,
+          kind = 'verbose',
+        },
+      },
+    })
+
+    -- kind=verbose for :verbose messages
+    feed(':1verbose filter Diff[AC] hi<CR>')
+    screen:expect({
+      cmdline = { { abort = false } },
+      messages = {
+        {
+          content = {
+            { '\nDiffAdd        ' },
+            { 'xxx', 22, 30 },
+            { ' ' },
+            { 'ctermbg=', 18, 5 },
+            { '81 ' },
+            { 'guibg=', 18, 5 },
+            { 'LightBlue' },
+          },
+          history = false,
+          kind = 'list_cmd',
+        },
+        {
+          content = { { '\n\tLast set from Lua (run Nvim with -V1 for more details)' } },
+          history = false,
+          kind = 'verbose',
+        },
+        {
+          content = {
+            { '\nDiffChange     ' },
+            { 'xxx', 4, 31 },
+            { ' ' },
+            { 'ctermbg=', 18, 5 },
+            { '225 ' },
+            { 'guibg=', 18, 5 },
+            { 'LightMagenta' },
+          },
+          history = false,
+          kind = 'list_cmd',
+        },
+        {
+          content = { { '\n\tLast set from Lua (run Nvim with -V1 for more details)' } },
+          history = false,
+          kind = 'verbose',
+        },
+        {
+          content = { { 'Press ENTER or type command to continue', 6, 18 } },
+          history = false,
+          kind = 'return_prompt',
+        },
+      },
+    })
+
+    -- kind=shell for :!cmd messages
+    local cmd = t.is_os('win') and 'echo stdout& echo stderr>&2& exit 3'
+      or '{ echo stdout; echo stderr >&2; exit 3; }'
+    feed(('<CR>:!%s<CR>'):format(cmd))
+    screen:expect({
+      cmdline = { { abort = false } },
+      messages = {
+        {
+          content = { { (':!%s\r\n[No write since last change]\n'):format(cmd) } },
+          history = false,
+          kind = '',
+        },
+        {
+          content = { { ('stdout%s\n'):format(t.is_os('win') and '\r' or '') } },
+          history = false,
+          kind = 'shell_out',
+        },
+        {
+          content = { { ('stderr%s\n'):format(t.is_os('win') and '\r' or ''), 9, 6 } },
+          history = false,
+          kind = 'shell_err',
+        },
+        {
+          content = { { '\nshell returned 3\n\n' } },
+          history = false,
+          kind = 'shell_ret',
+        },
+        {
+          content = { { 'Press ENTER or type command to continue', 6, 18 } },
+          history = false,
+          kind = 'return_prompt',
         },
       },
     })
@@ -1038,9 +1133,7 @@ describe('ui/ext_messages', function()
         ^                         |
         {1:~                        }|*4
       ]],
-      cmdline = { {
-        abort = false,
-      } },
+      cmdline = { { abort = false } },
     })
     eq(0, eval('&cmdheight'))
   end)
@@ -1298,13 +1391,25 @@ stack traceback:
       screen_showmode(...)
       showmode = showmode + 1
     end
+    local s1 = [[
+      ^                         |
+      {1:~                        }|*4
+    ]]
+    screen:expect(s1)
+    eq(showmode, 0)
+    feed('i')
     screen:expect({
-      grid = [[
-        ^                         |
-        {1:~                        }|*4
-      ]],
+      grid = s1,
+      showmode = { { '-- INSERT --', 5, 11 } },
     })
-    eq(showmode, 1)
+    eq(showmode, 2)
+    command('set noshowmode')
+    feed('<Esc>')
+    screen:expect(s1)
+    eq(showmode, 3)
+    feed('i')
+    screen:expect_unchanged()
+    eq(showmode, 3)
   end)
 
   it('emits single message for multiline print())', function()

@@ -351,7 +351,7 @@ describe(':terminal buffer', function()
   end)
 
   it('TermRequest synchronization #27572', function()
-    command('autocmd! nvim_terminal TermRequest')
+    command('autocmd! nvim.terminal TermRequest')
     local term = exec_lua([[
       _G.input = {}
       local term = vim.api.nvim_open_term(0, {
@@ -557,7 +557,7 @@ describe('terminal input', function()
       '--cmd',
       'set notermguicolors',
       '-c',
-      'while 1 | redraw | echo keytrans(getcharstr()) | endwhile',
+      'while 1 | redraw | echo keytrans(getcharstr(-1, #{simplify: 0})) | endwhile',
     })
     screen:expect([[
       ^                                                  |
@@ -566,7 +566,10 @@ describe('terminal input', function()
                                                         |
       {3:-- TERMINAL --}                                    |
     ]])
-    for _, key in ipairs({
+    local keys = {
+      '<Tab>',
+      '<CR>',
+      '<Esc>',
       '<M-Tab>',
       '<M-CR>',
       '<M-Esc>',
@@ -594,18 +597,36 @@ describe('terminal input', function()
       '<S-End>',
       '<C-End>',
       '<End>',
-      '<C-LeftMouse>',
-      '<C-LeftRelease>',
-      '<2-LeftMouse>',
-      '<2-LeftRelease>',
-      '<S-RightMouse>',
-      '<S-RightRelease>',
-      '<2-RightMouse>',
-      '<2-RightRelease>',
-      '<M-MiddleMouse>',
-      '<M-MiddleRelease>',
-      '<2-MiddleMouse>',
-      '<2-MiddleRelease>',
+      '<C-LeftMouse><0,0>',
+      '<C-LeftDrag><0,1>',
+      '<C-LeftRelease><0,1>',
+      '<2-LeftMouse><0,1>',
+      '<2-LeftDrag><0,0>',
+      '<2-LeftRelease><0,0>',
+      '<M-MiddleMouse><0,0>',
+      '<M-MiddleDrag><0,1>',
+      '<M-MiddleRelease><0,1>',
+      '<2-MiddleMouse><0,1>',
+      '<2-MiddleDrag><0,0>',
+      '<2-MiddleRelease><0,0>',
+      '<S-RightMouse><0,0>',
+      '<S-RightDrag><0,1>',
+      '<S-RightRelease><0,1>',
+      '<2-RightMouse><0,1>',
+      '<2-RightDrag><0,0>',
+      '<2-RightRelease><0,0>',
+      '<S-X1Mouse><0,0>',
+      '<S-X1Drag><0,1>',
+      '<S-X1Release><0,1>',
+      '<2-X1Mouse><0,1>',
+      '<2-X1Drag><0,0>',
+      '<2-X1Release><0,0>',
+      '<S-X2Mouse><0,0>',
+      '<S-X2Drag><0,1>',
+      '<S-X2Release><0,1>',
+      '<2-X2Mouse><0,1>',
+      '<2-X2Drag><0,0>',
+      '<2-X2Release><0,0>',
       '<S-ScrollWheelUp>',
       '<S-ScrollWheelDown>',
       '<ScrollWheelUp>',
@@ -614,7 +635,14 @@ describe('terminal input', function()
       '<S-ScrollWheelRight>',
       '<ScrollWheelLeft>',
       '<ScrollWheelRight>',
-    }) do
+    }
+    -- FIXME: The escape sequence to enable kitty keyboard mode doesn't work on Windows
+    if not is_os('win') then
+      table.insert(keys, '<C-I>')
+      table.insert(keys, '<C-M>')
+      table.insert(keys, '<C-[>')
+    end
+    for _, key in ipairs(keys) do
       feed(key)
       screen:expect(([[
                                                           |
@@ -622,7 +650,7 @@ describe('terminal input', function()
         {5:[No Name]                       0,0-1          All}|
         %s^ {MATCH: *}|
         {3:-- TERMINAL --}                                    |
-      ]]):format(key))
+      ]]):format(key:gsub('<%d+,%d+>$', '')))
     end
   end)
 end)

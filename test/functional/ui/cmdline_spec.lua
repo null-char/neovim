@@ -858,7 +858,7 @@ local function test_cmdline(linegrid)
       cmdline = {
         {
           content = { { '' } },
-          hl_id = 237,
+          hl_id = 242,
           pos = 0,
           prompt = 'Prompt:',
         },
@@ -1048,6 +1048,24 @@ describe('cmdline redraw', function()
                                |
       {6:Save changes?}            |
       {6:[Y]es, (N)o, (C)ancel: }^  |
+    ]])
+  end)
+
+  it('substitute confirm prompt does not scroll', function()
+    screen:try_resize(75, screen._height)
+    command('call setline(1, "foo")')
+    command('set report=0')
+    feed(':%s/foo/bar/c<CR>')
+    screen:expect([[
+      {2:foo}                                                                        |
+      {1:~                                                                          }|*3
+      {6:replace with bar? (y)es/(n)o/(a)ll/(q)uit/(l)ast/scroll up(^E)/down(^Y)}^    |
+    ]])
+    feed('y')
+    screen:expect([[
+      ^bar                                                                        |
+      {1:~                                                                          }|*3
+      1 substitution on 1 line                                                   |
     ]])
   end)
 end)

@@ -128,9 +128,9 @@ static const TSLanguage *load_language_from_object(lua_State *L, const char *pat
 {
   uv_lib_t lib;
   if (uv_dlopen(path, &lib)) {
+    xstrlcpy(IObuff, uv_dlerror(&lib), sizeof(IObuff));
     uv_dlclose(&lib);
-    luaL_error(L, "Failed to load parser for language '%s': uv_dlopen: %s",
-               lang_name, uv_dlerror(&lib));
+    luaL_error(L, "Failed to load parser for language '%s': uv_dlopen: %s", lang_name, IObuff);
   }
 
   char symbol_buf[128];
@@ -138,8 +138,9 @@ static const TSLanguage *load_language_from_object(lua_State *L, const char *pat
 
   TSLanguage *(*lang_parser)(void);
   if (uv_dlsym(&lib, symbol_buf, (void **)&lang_parser)) {
+    xstrlcpy(IObuff, uv_dlerror(&lib), sizeof(IObuff));
     uv_dlclose(&lib);
-    luaL_error(L, "Failed to load parser: uv_dlsym: %s", uv_dlerror(&lib));
+    luaL_error(L, "Failed to load parser: uv_dlsym: %s", IObuff);
   }
 
   TSLanguage *lang = lang_parser();
@@ -217,7 +218,7 @@ static int add_language(lua_State *L, bool is_wasm)
                            ? load_language_from_wasm(L, path, lang_name)
                            : load_language_from_object(L, path, lang_name, symbol_name);
 
-  uint32_t lang_version = ts_language_version(lang);
+  uint32_t lang_version = ts_language_abi_version(lang);
   if (lang_version < TREE_SITTER_MIN_COMPATIBLE_LANGUAGE_VERSION
       || lang_version > TREE_SITTER_LANGUAGE_VERSION) {
     return luaL_error(L,
@@ -299,7 +300,7 @@ int tslua_inspect_lang(lua_State *L)
   lua_pushboolean(L, ts_language_is_wasm(lang));
   lua_setfield(L, -2, "_wasm");
 
-  lua_pushinteger(L, ts_language_version(lang));  // [retval, version]
+  lua_pushinteger(L, ts_language_abi_version(lang));  // [retval, version]
   lua_setfield(L, -2, "_abi_version");
 
   return 1;
@@ -475,7 +476,7 @@ static int parser_parse(lua_State *L)
 #undef BUFSIZE
     }
 
-    input = (TSInput){ (void *)buf, input_cb, TSInputEncodingUTF8 };
+    input = (TSInput){ (void *)buf, input_cb, TSInputEncodingUTF8, NULL };
     new_tree = ts_parser_parse(p, old_tree, input);
 
     break;
@@ -489,13 +490,18 @@ static int parser_parse(lua_State *L)
   // Sometimes parsing fails (timeout, or wrong parser ABI)
   // In those case, just return an error.
   if (!new_tree) {
-    return luaL_error(L, "An error occurred when parsing.");
+    if (ts_parser_timeout_micros(p) == 0) {
+      // No timeout set, must have had an error
+      return luaL_error(L, "An error occurred when parsing.");
+    }
+    return 0;
   }
 
   // The new tree will be pushed to the stack, without copy, ownership is now to the lua GC.
   // Old tree is owned by lua GC since before
   uint32_t n_ranges = 0;
-  TSRange *changed = old_tree ? ts_tree_get_changed_ranges(old_tree, new_tree, &n_ranges) : NULL;
+  TSRange *changed = old_tree ? ts_tree_get_changed_ranges(old_tree, new_tree, &n_ranges)
+                              : ts_tree_included_ranges(new_tree, &n_ranges);
 
   push_tree(L, new_tree);  // [tree]
 
@@ -832,7 +838,6 @@ static struct luaL_Reg node_meta[] = {
   { "named_descendant_for_range", node_named_descendant_for_range },
   { "parent", node_parent },
   { "__has_ancestor", __has_ancestor },
-  { "child_containing_descendant", node_child_containing_descendant },
   { "child_with_descendant", node_child_with_descendant },
   { "iter_children", node_iter_children },
   { "next_sibling", node_next_sibling },
@@ -1173,15 +1178,6 @@ static int __has_ancestor(lua_State *L)
   }
 
   lua_pushboolean(L, false);
-  return 1;
-}
-
-static int node_child_containing_descendant(lua_State *L)
-{
-  TSNode node = node_check(L, 1);
-  TSNode descendant = node_check(L, 2);
-  TSNode child = ts_node_child_containing_descendant(node, descendant);
-  push_node(L, child, 1);
   return 1;
 }
 

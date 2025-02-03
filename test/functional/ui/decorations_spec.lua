@@ -509,6 +509,69 @@ describe('decorations providers', function()
     ]]}
   end)
 
+  it('can have virtual text of the style: eol_right_align', function()
+    insert(mulholland)
+    setup_provider [[
+      local hl = api.nvim_get_hl_id_by_name "ErrorMsg"
+      local test_ns = api.nvim_create_namespace "mulholland"
+      function on_do(event, ...)
+        if event == "line" then
+          local win, buf, line = ...
+          api.nvim_buf_set_extmark(buf, test_ns, line, 0, {
+            virt_text = {{'+'}, {'1234567890', 'ErrorMsg'}};
+            virt_text_pos='eol_right_align';
+            ephemeral = true;
+          })
+        end
+      end
+    ]]
+
+    screen:expect{grid=[[
+      // just to see if there was an accident |
+      // on Mulholland Drive       +{2:1234567890}|
+      try_start();                 +{2:1234567890}|
+      bufref_T save_buf;           +{2:1234567890}|
+      switch_buffer(&save_buf, buf); +{2:12345678}|
+      posp = getmark(mark, false); +{2:1234567890}|
+      restore_buffer(&save_buf);^   +{2:1234567890}|
+                                              |
+    ]]}
+  end)
+
+  it('multiple eol_right_align', function()
+    insert(mulholland)
+    setup_provider [[
+      local hl = api.nvim_get_hl_id_by_name "ErrorMsg"
+      local test_ns = api.nvim_create_namespace "mulholland"
+      function on_do(event, ...)
+        if event == "line" then
+          local win, buf, line = ...
+          api.nvim_buf_set_extmark(buf, test_ns, line, 0, {
+            virt_text = {{'11111'}};
+            virt_text_pos='eol_right_align';
+            ephemeral = true;
+          })
+          api.nvim_buf_set_extmark(0, test_ns, line, 0, {
+            virt_text = {{'22222'}};
+            virt_text_pos='eol_right_align';
+            ephemeral = true;
+          })
+        end
+      end
+    ]]
+
+    screen:expect{grid=[[
+      // just to see if there was an accident |
+      // on Mulholland Drive       11111 22222|
+      try_start();                 11111 22222|
+      bufref_T save_buf;           11111 22222|
+      switch_buffer(&save_buf, buf); 11111 222|
+      posp = getmark(mark, false); 11111 22222|
+      restore_buffer(&save_buf);^   11111 22222|
+                                              |
+    ]]}
+  end)
+
   it('virtual text works with wrapped lines', function()
     insert(mulholland)
     feed('ggJj3JjJ')
@@ -834,6 +897,9 @@ describe('extmark decorations', function()
       [42] = {undercurl = true, special = Screen.colors.Red};
       [43] = {background = Screen.colors.Yellow, undercurl = true, special = Screen.colors.Red};
       [44] = {background = Screen.colors.LightMagenta};
+      [45] = { background = Screen.colors.Red, special = Screen.colors.Red, foreground = Screen.colors.Red };
+      [46] = { background = Screen.colors.Blue, foreground = Screen.colors.Blue, special = Screen.colors.Red };
+      [47] = { background = Screen.colors.Green, foreground = Screen.colors.Blue, special = Screen.colors.Red };
     }
 
     ns = api.nvim_create_namespace 'test'
@@ -1923,6 +1989,46 @@ describe('extmark decorations', function()
                                                         |
     ]]}
   end)
+
+  it('highlight can combine multiple groups', function()
+    screen:try_resize(50, 3)
+    command('hi Group1 guibg=Red guifg=Red guisp=Red')
+    command('hi Group2 guibg=Blue guifg=Blue')
+    command('hi Group3 guibg=Green')
+    insert([[example text]])
+    api.nvim_buf_set_extmark(0, ns, 0, 0, { end_row=1, hl_group = {} })
+    screen:expect([[
+      example tex^t                                      |
+      {1:~                                                 }|
+                                                        |
+    ]])
+
+    api.nvim_buf_clear_namespace(0, ns, 0, -1)
+    api.nvim_buf_set_extmark(0, ns, 0, 0, { end_row=1, hl_group = {'Group1'} })
+    screen:expect([[
+      {45:example tex^t}                                      |
+      {1:~                                                 }|
+                                                        |
+    ]])
+    api.nvim_buf_clear_namespace(0, ns, 0, -1)
+    api.nvim_buf_set_extmark(0, ns, 0, 0, { end_row = 1, hl_group = {'Group1', 'Group2'} })
+    screen:expect([[
+      {46:example tex^t}                                      |
+      {1:~                                                 }|
+                                                        |
+    ]])
+    api.nvim_buf_clear_namespace(0, ns, 0, -1)
+    api.nvim_buf_set_extmark(0, ns, 0, 0, { end_row = 1, hl_group = {'Group1', 'Group2', 'Group3'}, hl_eol=true })
+    screen:expect([[
+      {47:example tex^t                                      }|
+      {1:~                                                 }|
+                                                        |
+    ]])
+
+    eq('Invalid hl_group: hl_group item',
+       pcall_err(api.nvim_buf_set_extmark, 0, ns, 0, 0, { end_row = 1, hl_group = {'Group1', 'Group2', {'fail'}}, hl_eol=true }))
+  end)
+
 
   it('highlight works after TAB with sidescroll #14201', function()
     screen:try_resize(50, 3)

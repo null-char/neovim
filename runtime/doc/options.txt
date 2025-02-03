@@ -1560,8 +1560,8 @@ A jump table for the options with a short description can be found at |Q_op|.
 		    "menu" or "menuone". No effect if "longest" is present.
 
 	   noselect Same as "noinsert", except that no menu item is
-		    pre-selected. If both "noinsert" and "noselect" are present,
-		    "noselect" has precedence.
+		    pre-selected. If both "noinsert" and "noselect" are
+		    present, "noselect" has precedence.
 
 	   fuzzy    Enable |fuzzy-matching| for completion candidates. This
 		    allows for more flexible and intuitive matching, where
@@ -1570,6 +1570,16 @@ A jump table for the options with a short description can be found at |Q_op|.
 		    difference how completion candidates are reduced from the
 		    list of alternatives, but not how the candidates are
 		    collected (using different completion types).
+
+	   nosort   Disable sorting of completion candidates based on fuzzy
+		    scores when "fuzzy" is enabled. Candidates will appear
+		    in their original order.
+
+	   preinsert
+		    Preinsert the portion of the first candidate word that is
+		    not part of the current completion leader and using the
+		    |hl-ComplMatchIns| highlight group. Does not work when
+		    "fuzzy" is also included.
 
 						*'completeslash'* *'csl'*
 'completeslash' 'csl'	string	(default "")
@@ -4657,8 +4667,8 @@ A jump table for the options with a short description can be found at |Q_op|.
 'redrawtime' 'rdt'	number	(default 2000)
 			global
 	Time in milliseconds for redrawing the display.  Applies to
-	'hlsearch', 'inccommand', |:match| highlighting and syntax
-	highlighting.
+	'hlsearch', 'inccommand', |:match| highlighting, syntax highlighting,
+	and async |LanguageTree:parse()|.
 	When redrawing takes more than this many milliseconds no further
 	matches will be highlighted.
 	For syntax highlighting the time applies per window.  When over the

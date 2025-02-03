@@ -166,7 +166,7 @@ directory indicated in the request. >lua
   })
 
 To try it out, select the above code and source it with `:'<,'>lua` (or
-`yxx`), then run this command in a :terminal buffer: >
+`g==`), then run this command in a :terminal buffer: >
 
     printf "\033]7;file://./foo/bar\033\\"
 
@@ -207,7 +207,7 @@ Use |jobwait()| to check if the terminal job has finished: >vim
     let running = jobwait([&channel], 0)[0] == -1
 <
 ==============================================================================
-:Termdebug plugin				*terminal-debug*
+:Termdebug plugin	*terminal-debug* *terminal-debugger* *package-termdebug*
 
 The Terminal debugging plugin can be used to debug a program with gdb and view
 the source code in a Vim window.  Since this is completely contained inside

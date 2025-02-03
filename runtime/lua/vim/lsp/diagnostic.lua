@@ -5,7 +5,7 @@ local api = vim.api
 
 local M = {}
 
-local augroup = api.nvim_create_augroup('vim_lsp_diagnostic', {})
+local augroup = api.nvim_create_augroup('nvim.lsp.diagnostic', {})
 
 local DEFAULT_CLIENT_ID = -1
 
@@ -20,7 +20,7 @@ end
 ---@return lsp.DiagnosticSeverity
 local function severity_vim_to_lsp(severity)
   if type(severity) == 'string' then
-    severity = vim.diagnostic.severity[severity]
+    severity = vim.diagnostic.severity[severity] --- @type integer
   end
   return severity
 end
@@ -89,6 +89,7 @@ local function diagnostic_lsp_to_vim(diagnostics, bufnr, client_id)
         string.format('Unsupported Markup message from LSP client %d', client_id),
         vim.lsp.log_levels.ERROR
       )
+      --- @diagnostic disable-next-line: undefined-field,no-unknown
       message = diagnostic.message.value
     end
     local line = buf_lines and buf_lines[start.line + 1] or ''
@@ -208,7 +209,7 @@ end
 
 --- @param uri string
 --- @param client_id? integer
---- @param diagnostics vim.Diagnostic[]
+--- @param diagnostics lsp.Diagnostic[]
 --- @param is_pull boolean
 local function handle_diagnostics(uri, client_id, diagnostics, is_pull)
   local fname = vim.uri_to_fname(uri)

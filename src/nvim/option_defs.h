@@ -54,9 +54,6 @@ typedef enum {
   kOptValTypeNumber,
   kOptValTypeString,
 } OptValType;
-/// Always update this whenever a new option type is added.
-#define kOptValTypeSize (kOptValTypeString + 1)
-typedef uint32_t OptTypeFlags;
 
 /// Scopes that an option can support.
 typedef enum {
@@ -99,7 +96,6 @@ typedef struct {
   int os_flags;
 
   /// Old value of the option.
-  /// TODO(famiu): Convert `os_oldval` and `os_newval` to `OptVal` to accommodate multitype options.
   OptValData os_oldval;
   /// New value of the option.
   OptValData os_newval;
@@ -138,6 +134,7 @@ typedef const char *(*opt_did_set_cb_T)(optset_T *args);
 typedef struct {
   /// Pointer to the option variable. It's always a string.
   char *oe_varp;
+  OptIndex oe_idx;
   /// The original option value, escaped.
   char *oe_opt_value;
 
@@ -173,13 +170,17 @@ typedef struct {
   char *fullname;                    ///< full option name
   char *shortname;                   ///< permissible abbreviation
   uint32_t flags;                    ///< see above
-  OptTypeFlags type_flags;           ///< option type flags, see OptValType
+  OptValType type;                   ///< option type
   OptScopeFlags scope_flags;         ///< option scope flags, see OptScope
   void *var;                         ///< global option: pointer to variable;
                                      ///< window-local option: NULL;
                                      ///< buffer-local option: global value
+  unsigned *flags_var;
   ssize_t scope_idx[kOptScopeSize];  ///< index of option at every scope.
   bool immutable;                    ///< option is immutable, trying to set it will give an error.
+
+  const char **values;               ///< possible values for string options
+  const size_t values_len;           ///< length of values array
 
   /// callback function to invoke after an option is modified to validate and
   /// apply the new value.

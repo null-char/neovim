@@ -70,7 +70,7 @@ adds arbitrary metadata and conditional data to a match.
 
 Queries are written in a lisp-like language documented in
 https://tree-sitter.github.io/tree-sitter/using-parsers#query-syntax
-Note: The predicates listed there page differ from those Nvim supports. See
+Note: The predicates listed there differ from those Nvim supports. See
 |treesitter-predicates| for a complete list of predicates supported by Nvim.
 
 Nvim looks for queries as `*.scm` files in a `queries` directory under
@@ -497,7 +497,7 @@ convention, nodes to be concealed are captured as `@conceal`, but any capture
 can be used. For example, the following query can be used to hide code block
 delimiters in Markdown: >query
 
-    (fenced_code_block_delimiter @conceal (#set! conceal ""))
+    ((fenced_code_block_delimiter) @conceal (#set! conceal ""))
 <
 It is also possible to replace a node with a single character, which (unlike
 legacy syntax) can be given a custom highlight. For example, the following
@@ -507,6 +507,13 @@ still highlighted the same as other operators: >query
     "!=" @operator (#set! conceal "≠")
 <
 Conceals specified in this way respect 'conceallevel'.
+
+Note that although you can use any string for `conceal`, only the first
+character will be used: >query
+
+    ; identifiers will be concealed with 'f'.
+    ((identifier) @conceal (#set! conceal "foo"))
+<
 
                                                *treesitter-highlight-priority*
 Treesitter uses |nvim_buf_set_extmark()| to set highlights with a default
@@ -571,6 +578,10 @@ associated with patterns:
       the same language as the node's LanguageTree.
     • `injection.parent` - indicates that the captured node’s text should
       be parsed with the same language as the node's parent LanguageTree.
+
+Injection queries are currently run over the entire buffer, which can be slow
+for large buffers. To disable injections for, e.g.,  `c`, just place an
+empty `queries/c/injections.scm` file in your 'runtimepath'.
 
 ==============================================================================
 VIM.TREESITTER                                                *lua-treesitter*
@@ -832,7 +843,13 @@ TSNode:range({include_bytes})                                 *TSNode:range()*
     • end byte (if {include_bytes} is `true`)
 
     Parameters: ~
-      • {include_bytes}  (`boolean?`)
+      • {include_bytes}  (`false?`)
+
+    Return (multiple): ~
+        (`integer`)
+        (`integer`)
+        (`integer`)
+        (`integer`)
 
 TSNode:sexpr()                                                *TSNode:sexpr()*
     Get an S-expression representing the node as a string.
@@ -942,7 +959,7 @@ get_node_range({node_or_range})              *vim.treesitter.get_node_range()*
     Returns the node's range or an unpacked range table
 
     Parameters: ~
-      • {node_or_range}  (`TSNode|table`) Node or table of positions
+      • {node_or_range}  (`TSNode|Range4`) Node or table of positions
 
     Return (multiple): ~
         (`integer`) start_row
@@ -1090,6 +1107,9 @@ start({bufnr}, {lang})                                *vim.treesitter.start()*
     required for some plugins. In this case, add `vim.bo.syntax = 'on'` after
     the call to `start`.
 
+    Note: By default, the highlighter parses code asynchronously, using a
+    segment time of 3ms.
+
     Example: >lua
         vim.api.nvim_create_autocmd( 'FileType', { pattern = 'tex',
             callback = function(args)
@@ -1178,7 +1198,7 @@ inspect({lang})                            *vim.treesitter.language.inspect()*
       • {lang}  (`string`) Language
 
     Return: ~
-        (`table`)
+        (`TSLangInfo`)
 
 register({lang}, {filetype})              *vim.treesitter.language.register()*
     Register a parser named {lang} to be used for {filetype}(s).
@@ -1336,7 +1356,7 @@ parse({lang}, {query})                          *vim.treesitter.query.parse()*
       `info.captures`).
     • `info.patterns`: information about predicates.
 
-    Example (to try it, use `yxx` or select the code then run `:'<,'>lua`): >lua
+    Example: >lua
         local query = vim.treesitter.query.parse('vimdoc', [[
           ; query
           ((h1) @str
@@ -1401,8 +1421,8 @@ Query:iter_captures({node}, {source}, {start}, {stop})
                   Defaults to `node:end_()`.
 
     Return: ~
-        (`fun(end_line: integer?): integer, TSNode, vim.treesitter.query.TSMetadata, TSQueryMatch`)
-        capture id, capture node, metadata, match
+        (`fun(end_line: integer?): integer, TSNode, vim.treesitter.query.TSMetadata, TSQueryMatch, TSTree`)
+        capture id, capture node, metadata, match, tree
 
                                                         *Query:iter_matches()*
 Query:iter_matches({node}, {source}, {start}, {stop}, {opts})
@@ -1447,14 +1467,24 @@ Query:iter_matches({node}, {source}, {start}, {stop}, {opts})
                     compatibility and will be removed in a future release.
 
     Return: ~
-        (`fun(): integer, table<integer, TSNode[]>, vim.treesitter.query.TSMetadata`)
-        pattern id, match, metadata
+        (`fun(): integer, table<integer, TSNode[]>, vim.treesitter.query.TSMetadata, TSTree`)
+        pattern id, match, metadata, tree
 
 set({lang}, {query_name}, {text})                 *vim.treesitter.query.set()*
     Sets the runtime query named {query_name} for {lang}
 
-    This allows users to override any runtime files and/or configuration set
-    by plugins.
+    This allows users to override or extend any runtime files and/or
+    configuration set by plugins.
+
+    For example, you could enable spellchecking of `C` identifiers with the
+    following code: >lua
+        vim.treesitter.query.set(
+          'c',
+          'highlights',
+          [[;inherits c
+          (identifier) @spell]])
+        ]])
+<
 
     Parameters: ~
       • {lang}        (`string`) Language to use for the query
@@ -1498,6 +1528,9 @@ analysis on a tree should use a timer to throttle too frequent updates.
 
 LanguageTree:children()                              *LanguageTree:children()*
     Returns a map of language to child tree.
+
+    Return: ~
+        (`table<string,vim.treesitter.LanguageTree>`)
 
 LanguageTree:contains({range})                       *LanguageTree:contains()*
     Determines whether {range} is contained in the |LanguageTree|.
@@ -1548,7 +1581,8 @@ LanguageTree:invalidate({reload})                  *LanguageTree:invalidate()*
     Parameters: ~
       • {reload}  (`boolean?`)
 
-LanguageTree:is_valid({exclude_children})            *LanguageTree:is_valid()*
+                                                     *LanguageTree:is_valid()*
+LanguageTree:is_valid({exclude_children}, {range})
     Returns whether this LanguageTree is valid, i.e., |LanguageTree:trees()|
     reflects the latest state of the source. If invalid, user should call
     |LanguageTree:parse()|.
@@ -1556,12 +1590,16 @@ LanguageTree:is_valid({exclude_children})            *LanguageTree:is_valid()*
     Parameters: ~
       • {exclude_children}  (`boolean?`) whether to ignore the validity of
                             children (default `false`)
+      • {range}             (`Range?`) range to check for validity
 
     Return: ~
         (`boolean`)
 
 LanguageTree:lang()                                      *LanguageTree:lang()*
     Gets the language of this tree node.
+
+    Return: ~
+        (`string`)
 
                                            *LanguageTree:language_for_range()*
 LanguageTree:language_for_range({range})
@@ -1611,7 +1649,13 @@ LanguageTree:node_for_range({range}, {opts})
     Return: ~
         (`TSNode?`)
 
-LanguageTree:parse({range})                             *LanguageTree:parse()*
+LanguageTree:parent()                                  *LanguageTree:parent()*
+    Returns the parent tree. `nil` for the root tree.
+
+    Return: ~
+        (`vim.treesitter.LanguageTree?`)
+
+LanguageTree:parse({range}, {on_parse})                 *LanguageTree:parse()*
     Recursively parse all regions in the language tree using
     |treesitter-parsers| for the corresponding languages and run injection
     queries on the parsed trees to determine whether child trees should be
@@ -1622,14 +1666,27 @@ LanguageTree:parse({range})                             *LanguageTree:parse()*
     if {range} is `true`).
 
     Parameters: ~
-      • {range}  (`boolean|Range?`) Parse this range in the parser's source.
-                 Set to `true` to run a complete parse of the source (Note:
-                 Can be slow!) Set to `false|nil` to only parse regions with
-                 empty ranges (typically only the root tree without
-                 injections).
+      • {range}     (`boolean|Range?`) Parse this range in the parser's
+                    source. Set to `true` to run a complete parse of the
+                    source (Note: Can be slow!) Set to `false|nil` to only
+                    parse regions with empty ranges (typically only the root
+                    tree without injections).
+      • {on_parse}  (`fun(err?: string, trees?: table<integer, TSTree>)?`)
+                    Function invoked when parsing completes. When provided and
+                    `vim.g._ts_force_sync_parsing` is not set, parsing will
+                    run asynchronously. The first argument to the function is
+                    a string representing the error type, in case of a failure
+                    (currently only possible for timeouts). The second
+                    argument is the list of trees returned by the parse (upon
+                    success), or `nil` if the parse timed out (determined by
+                    'redrawtime').
+
+                    If parsing was still able to finish synchronously (within
+                    3ms), `parse()` returns the list of trees. Otherwise, it
+                    returns `nil`.
 
     Return: ~
-        (`table<integer, TSTree>`)
+        (`table<integer, TSTree>?`)
 
                                                  *LanguageTree:register_cbs()*
 LanguageTree:register_cbs({cbs}, {recursive})
@@ -1657,6 +1714,9 @@ LanguageTree:register_cbs({cbs}, {recursive})
 
 LanguageTree:source()                                  *LanguageTree:source()*
     Returns the source content of the language tree (bufnr or string).
+
+    Return: ~
+        (`integer|string`)
 
                                                *LanguageTree:tree_for_range()*
 LanguageTree:tree_for_range({range}, {opts})

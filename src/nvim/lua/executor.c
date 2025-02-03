@@ -276,10 +276,9 @@ static int nlua_luv_thread_common_cfpcall(lua_State *lstate, int nargs, int nres
 #endif
     }
     const char *error = lua_tostring(lstate, -1);
-
     loop_schedule_deferred(&main_loop,
                            event_create(nlua_luv_error_event,
-                                        xstrdup(error),
+                                        error != NULL ? xstrdup(error) : NULL,
                                         (void *)(intptr_t)(is_callback
                                                            ? kThreadCallback
                                                            : kThread)));
@@ -1588,8 +1587,8 @@ Object nlua_call_ref_ctx(bool fast, LuaRef ref, const char *name, Array args, Lu
     if (nlua_fast_cfpcall(lstate, nargs, 1, -1) < 0) {
       // error is already scheduled, set anyways to convey failure.
       api_set_error(err, kErrorTypeException, "fast context failure");
+      return NIL;
     }
-    return NIL;
   } else if (nlua_pcall(lstate, nargs, 1)) {
     // if err is passed, the caller will deal with the error.
     if (err) {

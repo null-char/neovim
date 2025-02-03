@@ -966,7 +966,11 @@ static void ins_compl_insert_bytes(char *p, int len)
 /// -1 mean normal item.
 int ins_compl_col_range_attr(int col)
 {
-  if (col >= compl_col && col < compl_ins_end_col) {
+  if (get_cot_flags() & kOptCotFlagFuzzy) {
+    return -1;
+  }
+
+  if (col >= (compl_col + (int)ins_compl_leader_len()) && col < compl_ins_end_col) {
     return syn_name2attr("ComplMatchIns");
   }
 
@@ -1208,7 +1212,8 @@ static int ins_compl_build_pum(void)
   int max_fuzzy_score = 0;
   unsigned cur_cot_flags = get_cot_flags();
   bool compl_no_select = (cur_cot_flags & kOptCotFlagNoselect) != 0;
-  bool compl_fuzzy_match = (cur_cot_flags & kOptCotFlagFuzzy) != 0;
+  bool fuzzy_filter = (cur_cot_flags & kOptCotFlagFuzzy) != 0;
+  bool fuzzy_sort = fuzzy_filter && !(cur_cot_flags & kOptCotFlagNosort);
   compl_T *match_head = NULL, *match_tail = NULL;
 
   // If the current match is the original text don't find the first
@@ -1228,14 +1233,14 @@ static int ins_compl_build_pum(void)
     comp->cp_in_match_array = false;
     // When 'completeopt' contains "fuzzy" and leader is not NULL or empty,
     // set the cp_score for later comparisons.
-    if (compl_fuzzy_match && compl_leader.data != NULL && compl_leader.size > 0) {
+    if (fuzzy_filter && compl_leader.data != NULL && compl_leader.size > 0) {
       comp->cp_score = fuzzy_match_str(comp->cp_str.data, compl_leader.data);
     }
 
     if (!match_at_original_text(comp)
         && (compl_leader.data == NULL
             || ins_compl_equal(comp, compl_leader.data, compl_leader.size)
-            || (compl_fuzzy_match && comp->cp_score > 0))) {
+            || (fuzzy_filter && comp->cp_score > 0))) {
       compl_match_arraysize++;
       comp->cp_in_match_array = true;
       if (match_head == NULL) {
@@ -1244,7 +1249,7 @@ static int ins_compl_build_pum(void)
         match_tail->cp_match_next = comp;
       }
       match_tail = comp;
-      if (!shown_match_ok && !compl_fuzzy_match) {
+      if (!shown_match_ok && !fuzzy_filter) {
         if (comp == compl_shown_match || did_find_shown_match) {
           // This item is the shown match or this is the
           // first displayed item after the shown match.
@@ -1257,18 +1262,20 @@ static int ins_compl_build_pum(void)
           shown_compl = comp;
         }
         cur = i;
-      } else if (compl_fuzzy_match) {
+      } else if (fuzzy_filter) {
         if (i == 0) {
           shown_compl = comp;
         }
         // Update the maximum fuzzy score and the shown match
         // if the current item's score is higher
-        if (comp->cp_score > max_fuzzy_score) {
+        if (fuzzy_sort && comp->cp_score > max_fuzzy_score) {
           did_find_shown_match = true;
           max_fuzzy_score = comp->cp_score;
           if (!compl_no_select) {
             compl_shown_match = comp;
           }
+        } else if (!fuzzy_sort && i == 0 && !compl_no_select) {
+          compl_shown_match = shown_compl;
         }
         if (!shown_match_ok && comp == compl_shown_match && !compl_no_select) {
           cur = i;
@@ -1278,7 +1285,7 @@ static int ins_compl_build_pum(void)
       i++;
     }
 
-    if (comp == compl_shown_match && !compl_fuzzy_match) {
+    if (comp == compl_shown_match && !fuzzy_filter) {
       did_find_shown_match = true;
       // When the original text is the shown match don't set
       // compl_shown_match.
@@ -1319,7 +1326,7 @@ static int ins_compl_build_pum(void)
     comp = match_next;
   }
 
-  if (compl_fuzzy_match && compl_leader.data != NULL && compl_leader.size > 0) {
+  if (fuzzy_sort && compl_leader.data != NULL && compl_leader.size > 0) {
     for (i = 0; i < compl_match_arraysize; i++) {
       compl_match_array[i].pum_idx = i;
     }
@@ -1774,12 +1781,33 @@ int ins_compl_len(void)
   return compl_length;
 }
 
+/// Return true when preinsert is set otherwise FALSE.
+static bool ins_compl_has_preinsert(void)
+{
+  return (get_cot_flags() & (kOptCotFlagFuzzy|kOptCotFlagPreinsert)) == kOptCotFlagPreinsert;
+}
+
+/// Returns true if the pre-insert effect is valid and the cursor is within
+/// the `compl_ins_end_col` range.
+bool ins_compl_preinsert_effect(void)
+{
+  if (!ins_compl_has_preinsert()) {
+    return false;
+  }
+
+  return curwin->w_cursor.col < compl_ins_end_col;
+}
+
 /// Delete one character before the cursor and show the subset of the matches
 /// that match the word that is now before the cursor.
 /// Returns the character to be used, NUL if the work is done and another char
 /// to be got from the user.
 int ins_compl_bs(void)
 {
+  if (ins_compl_preinsert_effect()) {
+    ins_compl_delete(false);
+  }
+
   char *line = get_cursor_line_ptr();
   char *p = line + curwin->w_cursor.col;
   MB_PTR_BACK(line, p);
@@ -1865,8 +1893,13 @@ static void ins_compl_new_leader(void)
   ins_compl_show_pum();
 
   // Don't let Enter select the original text when there is no popup menu.
+  if (compl_match_array == NULL) {
+    compl_enter_selects = false;
+  } else if (ins_compl_has_preinsert() && compl_leader.size > 0) {
+    ins_compl_insert(false, true);
+  }
   // Don't let Enter select when use user function and refresh_always is set
-  if (compl_match_array == NULL || ins_compl_refresh_always()) {
+  if (ins_compl_refresh_always()) {
     compl_enter_selects = false;
   }
 }
@@ -1888,6 +1921,10 @@ static int get_compl_len(void)
 void ins_compl_addleader(int c)
 {
   int cc;
+
+  if (ins_compl_preinsert_effect()) {
+    ins_compl_delete(false);
+  }
 
   if (stop_arrow() == FAIL) {
     return;
@@ -2189,6 +2226,10 @@ static bool ins_compl_stop(const int c, const int prev_mode, bool retval)
     }
     restore_orig_extmarks();
     retval = true;
+  }
+
+  if ((c == Ctrl_W || c == Ctrl_U) && ins_compl_preinsert_effect()) {
+    ins_compl_delete(false);
   }
 
   auto_format(false, true);
@@ -2880,6 +2921,25 @@ static void ins_compl_update_sequence_numbers(void)
   }
 }
 
+/// Fill the dict of complete_info
+static void fill_complete_info_dict(dict_T *di, compl_T *match, bool add_match)
+{
+  tv_dict_add_str(di, S_LEN("word"), match->cp_str.data);
+  tv_dict_add_str(di, S_LEN("abbr"), match->cp_text[CPT_ABBR]);
+  tv_dict_add_str(di, S_LEN("menu"), match->cp_text[CPT_MENU]);
+  tv_dict_add_str(di, S_LEN("kind"), match->cp_text[CPT_KIND]);
+  tv_dict_add_str(di, S_LEN("info"), match->cp_text[CPT_INFO]);
+  if (add_match) {
+    tv_dict_add_bool(di, S_LEN("match"), match->cp_in_match_array);
+  }
+  if (match->cp_user_data.v_type == VAR_UNKNOWN) {
+    // Add an empty string for backwards compatibility
+    tv_dict_add_str(di, S_LEN("user_data"), "");
+  } else {
+    tv_dict_add_tv(di, S_LEN("user_data"), &match->cp_user_data);
+  }
+}
+
 /// Get complete information
 static void get_complete_info(list_T *what_list, dict_T *retdict)
 {
@@ -2887,13 +2947,13 @@ static void get_complete_info(list_T *what_list, dict_T *retdict)
 #define CI_WHAT_PUM_VISIBLE     0x02
 #define CI_WHAT_ITEMS           0x04
 #define CI_WHAT_SELECTED        0x08
-#define CI_WHAT_INSERTED        0x10
+#define CI_WHAT_COMPLETED       0x10
 #define CI_WHAT_MATCHES         0x20
 #define CI_WHAT_ALL             0xff
   int what_flag;
 
   if (what_list == NULL) {
-    what_flag = CI_WHAT_ALL & ~CI_WHAT_MATCHES;
+    what_flag = CI_WHAT_ALL & ~(CI_WHAT_MATCHES|CI_WHAT_COMPLETED);
   } else {
     what_flag = 0;
     for (listitem_T *item = tv_list_first(what_list)
@@ -2909,8 +2969,8 @@ static void get_complete_info(list_T *what_list, dict_T *retdict)
         what_flag |= CI_WHAT_ITEMS;
       } else if (strcmp(what, "selected") == 0) {
         what_flag |= CI_WHAT_SELECTED;
-      } else if (strcmp(what, "inserted") == 0) {
-        what_flag |= CI_WHAT_INSERTED;
+      } else if (strcmp(what, "completed") == 0) {
+        what_flag |= CI_WHAT_COMPLETED;
       } else if (strcmp(what, "matches") == 0) {
         what_flag |= CI_WHAT_MATCHES;
       }
@@ -2926,12 +2986,13 @@ static void get_complete_info(list_T *what_list, dict_T *retdict)
     ret = tv_dict_add_nr(retdict, S_LEN("pum_visible"), pum_visible());
   }
 
-  if (ret == OK && (what_flag & CI_WHAT_ITEMS || what_flag & CI_WHAT_SELECTED
-                    || what_flag & CI_WHAT_MATCHES)) {
+  if (ret == OK && (what_flag & (CI_WHAT_ITEMS|CI_WHAT_SELECTED
+                                 |CI_WHAT_MATCHES|CI_WHAT_COMPLETED))) {
     list_T *li = NULL;
     int selected_idx = -1;
     bool has_items = what_flag & CI_WHAT_ITEMS;
     bool has_matches = what_flag & CI_WHAT_MATCHES;
+    bool has_completed = what_flag & CI_WHAT_COMPLETED;
     if (has_items || has_matches) {
       li = tv_list_alloc(kListLenMayKnow);
       const char *key = (has_matches && !has_items) ? "matches" : "items";
@@ -2950,20 +3011,7 @@ static void get_complete_info(list_T *what_list, dict_T *retdict)
           if (has_items || (has_matches && match->cp_in_match_array)) {
             dict_T *di = tv_dict_alloc();
             tv_list_append_dict(li, di);
-            tv_dict_add_str(di, S_LEN("word"), match->cp_str.data);
-            tv_dict_add_str(di, S_LEN("abbr"), match->cp_text[CPT_ABBR]);
-            tv_dict_add_str(di, S_LEN("menu"), match->cp_text[CPT_MENU]);
-            tv_dict_add_str(di, S_LEN("kind"), match->cp_text[CPT_KIND]);
-            tv_dict_add_str(di, S_LEN("info"), match->cp_text[CPT_INFO]);
-            if (has_matches && has_items) {
-              tv_dict_add_bool(di, S_LEN("match"), match->cp_in_match_array);
-            }
-            if (match->cp_user_data.v_type == VAR_UNKNOWN) {
-              // Add an empty string for backwards compatibility
-              tv_dict_add_str(di, S_LEN("user_data"), "");
-            } else {
-              tv_dict_add_tv(di, S_LEN("user_data"), &match->cp_user_data);
-            }
+            fill_complete_info_dict(di, match, has_matches && has_items);
           }
           if (compl_curr_match != NULL
               && compl_curr_match->cp_number == match->cp_number) {
@@ -2982,11 +3030,14 @@ static void get_complete_info(list_T *what_list, dict_T *retdict)
         tv_dict_add_nr(retdict, S_LEN("preview_bufnr"), wp->w_buffer->handle);
       }
     }
+    if (ret == OK && selected_idx != -1 && has_completed) {
+      dict_T *di = tv_dict_alloc();
+      fill_complete_info_dict(di, compl_curr_match, false);
+      ret = tv_dict_add_dict(retdict, S_LEN("completed"), di);
+    }
   }
 
   (void)ret;
-  // TODO(vim):
-  // if (ret == OK && (what_flag & CI_WHAT_INSERTED))
 }
 
 /// "complete_info()" function
@@ -3422,7 +3473,8 @@ static int get_next_default_completion(ins_compl_next_state_T *st, pos_T *start_
     int len;
     char *ptr = ins_compl_get_next_word_or_line(st->ins_buf, st->cur_match_pos,
                                                 &len, &cont_s_ipos);
-    if (ptr == NULL) {
+    if (ptr == NULL
+        || (ins_compl_has_preinsert() && strcmp(ptr, compl_pattern.data) == 0)) {
       continue;
     }
     if (ins_compl_add_infercase(ptr, len, p_ic,
@@ -3679,6 +3731,12 @@ void ins_compl_delete(bool new_leader)
   // In insert mode: Delete the typed part.
   // In replace mode: Put the old characters back, if any.
   int col = compl_col + (compl_status_adding() ? compl_length : orig_col);
+  bool has_preinsert = ins_compl_preinsert_effect();
+  if (has_preinsert) {
+    col += (int)ins_compl_leader_len();
+    curwin->w_cursor.col = compl_ins_end_col;
+  }
+
   if ((int)curwin->w_cursor.col > col) {
     if (stop_arrow() == FAIL) {
       return;
@@ -3696,15 +3754,25 @@ void ins_compl_delete(bool new_leader)
 
 /// Insert the new text being completed.
 /// "in_compl_func" is true when called from complete_check().
-void ins_compl_insert(bool in_compl_func)
+/// "move_cursor" is used when 'completeopt' includes "preinsert" and when true
+/// cursor needs to move back from the inserted text to the compl_leader.
+void ins_compl_insert(bool in_compl_func, bool move_cursor)
 {
   int compl_len = get_compl_len();
+  bool preinsert = ins_compl_has_preinsert();
+  char *cp_str = compl_shown_match->cp_str.data;
+  size_t cp_str_len = compl_shown_match->cp_str.size;
+  size_t leader_len = ins_compl_leader_len();
+
   // Make sure we don't go over the end of the string, this can happen with
   // illegal bytes.
-  if (compl_len < (int)compl_shown_match->cp_str.size) {
-    ins_compl_insert_bytes(compl_shown_match->cp_str.data + compl_len, -1);
+  if (compl_len < (int)cp_str_len) {
+    ins_compl_insert_bytes(cp_str + compl_len, -1);
+    if (preinsert && move_cursor) {
+      curwin->w_cursor.col -= (colnr_T)(cp_str_len - leader_len);
+    }
   }
-  compl_used_match = !match_at_original_text(compl_shown_match);
+  compl_used_match = !(match_at_original_text(compl_shown_match) || preinsert);
 
   dict_T *dict = ins_compl_dict_alloc(compl_shown_match);
   set_vim_var_dict(VV_COMPLETED_ITEM, dict);
@@ -3906,6 +3974,7 @@ static int ins_compl_next(bool allow_get_expansion, int count, bool insert_match
   unsigned cur_cot_flags = get_cot_flags();
   bool compl_no_insert = (cur_cot_flags & kOptCotFlagNoinsert) != 0;
   bool compl_fuzzy_match = (cur_cot_flags & kOptCotFlagFuzzy) != 0;
+  bool compl_preinsert = ins_compl_has_preinsert();
 
   // When user complete function return -1 for findstart which is next
   // time of 'always', compl_shown_match become NULL.
@@ -3950,13 +4019,13 @@ static int ins_compl_next(bool allow_get_expansion, int count, bool insert_match
   }
 
   // Insert the text of the new completion, or the compl_leader.
-  if (compl_no_insert && !started) {
+  if (compl_no_insert && !started && !compl_preinsert) {
     ins_compl_insert_bytes(compl_orig_text.data + get_compl_len(), -1);
     compl_used_match = false;
     restore_orig_extmarks();
   } else if (insert_match) {
     if (!compl_get_longest || compl_used_match) {
-      ins_compl_insert(in_compl_func);
+      ins_compl_insert(in_compl_func, true);
     } else {
       assert(compl_leader.data != NULL);
       ins_compl_insert_bytes(compl_leader.data + get_compl_len(), -1);

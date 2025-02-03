@@ -72,6 +72,10 @@ local LUA_API_META_HEADER = {
   '-- DO NOT EDIT',
   "error('Cannot require a meta file')",
   '',
+  '--- This file embeds vimdoc as the function descriptions',
+  '--- so ignore any doc related errors.',
+  '--- @diagnostic disable: undefined-doc-name,luadoc-miss-symbol',
+  '',
   'vim.api = {}',
 }
 
@@ -666,7 +670,16 @@ local function render_option_meta(_f, opt, write)
     write('--- ' .. l)
   end
 
-  write('--- @type ' .. OPTION_TYPES[opt.type])
+  if opt.type == 'string' and not opt.list and opt.values then
+    local values = {} --- @type string[]
+    for _, e in ipairs(opt.values) do
+      values[#values + 1] = fmt("'%s'", e)
+    end
+    write('--- @type ' .. table.concat(values, '|'))
+  else
+    write('--- @type ' .. OPTION_TYPES[opt.type])
+  end
+
   write('vim.o.' .. opt.full_name .. ' = ' .. render_option_default(opt.defaults))
   if opt.abbreviation then
     write('vim.o.' .. opt.abbreviation .. ' = vim.o.' .. opt.full_name)

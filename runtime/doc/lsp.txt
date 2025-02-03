@@ -32,7 +32,7 @@ Follow these steps to get LSP features:
     Example: >lua
       vim.lsp.config['luals'] = {
         -- Command and arguments to start the server.
-        cmd = { 'lua-language-server' }
+        cmd = { 'lua-language-server' },
 
         -- Filetypes to automatically attach to.
         filetypes = { 'lua' },
@@ -93,7 +93,7 @@ Given: >lua
           multilineTokenSupport = true,
         }
       }
-    }
+    },
     root_markers = { '.git' },
   })
 
@@ -878,12 +878,13 @@ foldexpr({lnum})                                          *vim.lsp.foldexpr()*
 
     To use, check for the "textDocument/foldingRange" capability in an
     |LspAttach| autocommand. Example: >lua
-        vim.api.nvim_create_autocommand('LspAttach', {
+        vim.api.nvim_create_autocmd('LspAttach', {
           callback = function(args)
             local client = vim.lsp.get_client_by_id(args.data.client_id)
             if client:supports_method('textDocument/foldingRange') then
-              vim.wo.foldmethod = 'expr'
-              vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+              local win = vim.api.nvim_get_current_win()
+              vim.wo[win][0].foldmethod = 'expr'
+              vim.wo[win][0].foldexpr = 'v:lua.vim.lsp.foldexpr()'
             end
           end,
         })
@@ -1445,12 +1446,11 @@ Lua module: vim.lsp.buf                                              *lsp-buf*
                         vim.lsp.buf.definition({ on_list = on_list })
                         vim.lsp.buf.references(nil, { on_list = on_list })
 <
-
-                    If you prefer loclist instead of qflist: >lua
+      • {loclist}?  (`boolean`) Whether to use the |location-list| or the
+                    |quickfix| list in the default handler. >lua
                         vim.lsp.buf.definition({ loclist = true })
-                        vim.lsp.buf.references(nil, { loclist = true })
+                        vim.lsp.buf.references(nil, { loclist = false })
 <
-      • {loclist}?  (`boolean`)
 
 *vim.lsp.LocationOpts*
     Extends: |vim.lsp.ListOpts|
@@ -1553,7 +1553,7 @@ document_highlight()                        *vim.lsp.buf.document_highlight()*
     |hl-LspReferenceWrite|
 
 document_symbol({opts})                        *vim.lsp.buf.document_symbol()*
-    Lists all symbols in the current buffer in the quickfix window.
+    Lists all symbols in the current buffer in the |location-list|.
 
     Parameters: ~
       • {opts}  (`vim.lsp.ListOpts?`) See |vim.lsp.ListOpts|.

@@ -34,7 +34,7 @@ local matchregex = vim.filetype._matchregex
 -- can be detected from the first five lines of the file.
 --- @type vim.filetype.mapfn
 function M.asm(path, bufnr)
-  -- tiasm uses `* commment`
+  -- tiasm uses `* comment`
   local lines = table.concat(getlines(bufnr, 1, 10), '\n')
   if findany(lines, { '^%*', '\n%*', 'Texas Instruments Incorporated' }) then
     return 'tiasm'
@@ -757,7 +757,7 @@ function M.html(_, bufnr)
     if
       matchregex(
         line,
-        [[@\(if\|for\|defer\|switch\)\|\*\(ngIf\|ngFor\|ngSwitch\|ngTemplateOutlet\)\|ng-template\|ng-content\|{{.*}}]]
+        [[@\(if\|for\|defer\|switch\)\|\*\(ngIf\|ngFor\|ngSwitch\|ngTemplateOutlet\)\|ng-template\|ng-content]]
       )
     then
       return 'htmlangular'
@@ -881,7 +881,7 @@ end
 --- (refactor of filetype.vim since the patterns are case-insensitive)
 --- @type vim.filetype.mapfn
 function M.log(path, _)
-  path = path:lower()
+  path = path:lower() --- @type string LuaLS bug
   if
     findany(
       path,
@@ -1167,7 +1167,7 @@ end
 --- @type vim.filetype.mapfn
 function M.perl(path, bufnr)
   local dir_name = vim.fs.dirname(path)
-  if fn.expand(path, '%:e') == 't' and (dir_name == 't' or dir_name == 'xt') then
+  if fn.fnamemodify(path, '%:e') == 't' and (dir_name == 't' or dir_name == 'xt') then
     return 'perl'
   end
   local first_line = getline(bufnr, 1)
@@ -1375,7 +1375,7 @@ end
 local udev_rules_pattern = '^%s*udev_rules%s*=%s*"([%^"]+)/*".*'
 --- @type vim.filetype.mapfn
 function M.rules(path)
-  path = path:lower()
+  path = path:lower() --- @type string LuaLS bug
   if
     findany(path, {
       '/etc/udev/.*%.rules$',
@@ -1398,7 +1398,7 @@ function M.rules(path)
     if not ok then
       return 'hog'
     end
-    local dir = fn.expand(path, ':h')
+    local dir = fn.fnamemodify(path, ':h')
     for _, line in ipairs(config_lines) do
       local match = line:match(udev_rules_pattern)
       if match then
@@ -1527,7 +1527,6 @@ local function sh(path, contents, name)
       vim.b[b].is_kornshell = nil
       vim.b[b].is_sh = nil
     end
-    return M.shell(path, contents, 'bash'), on_detect
     -- Ubuntu links sh to dash
   elseif matchregex(name, [[\<\(sh\|dash\)\>]]) then
     on_detect = function(b)
@@ -1764,7 +1763,7 @@ function M.v(_, bufnr)
     return vim.g.filetype_v
   end
   local in_comment = 0
-  for _, line in ipairs(getlines(bufnr, 1, 200)) do
+  for _, line in ipairs(getlines(bufnr, 1, 500)) do
     if line:find('^%s*/%*') then
       in_comment = 1
     end
@@ -1778,7 +1777,7 @@ function M.v(_, bufnr)
         or line:find('%(%*') and not line:find('/[/*].*%(%*')
       then
         return 'coq'
-      elseif findany(line, { ';%s*$', ';%s*/[/*]' }) then
+      elseif findany(line, { ';%s*$', ';%s*/[/*]', '^%s*module%s+%w+%s*%(' }) then
         return 'verilog'
       end
     end
@@ -1878,6 +1877,7 @@ local patterns_hashbang = {
   ruby = 'ruby',
   ['node\\(js\\)\\=\\>\\|js\\>'] = { 'javascript', { vim_regex = true } },
   ['rhino\\>'] = { 'javascript', { vim_regex = true } },
+  just = 'just',
   -- BC calculator
   ['^bc\\>'] = { 'bc', { vim_regex = true } },
   ['sed\\>'] = { 'sed', { vim_regex = true } },

@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -114,6 +115,15 @@ static VTermState *vterm_state_new(VTerm *vt)
   state->encoding_utf8.enc = vterm_lookup_encoding(ENC_UTF8, 'u');
   if (*state->encoding_utf8.enc->init) {
     (*state->encoding_utf8.enc->init)(state->encoding_utf8.enc, state->encoding_utf8.data);
+  }
+
+  for (size_t i = 0; i < ARRAY_SIZE(state->key_encoding_stacks); i++) {
+    struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[i];
+    for (size_t j = 0; j < ARRAY_SIZE(stack->items); j++) {
+      memset(&stack->items[j], 0, sizeof(stack->items[j]));
+    }
+
+    stack->size = 1;
   }
 
   return state;
@@ -819,6 +829,10 @@ static void set_dec_mode(VTermState *state, int num, int val)
     state->mode.bracketpaste = (unsigned)val;
     break;
 
+  case 2031:
+    settermprop_bool(state, VTERM_PROP_THEMEUPDATES, val);
+    break;
+
   default:
     DEBUG_LOG("libvterm: Unknown DEC mode %d\n", num);
     return;
@@ -894,6 +908,10 @@ static void request_dec_mode(VTermState *state, int num)
     reply = state->mode.bracketpaste;
     break;
 
+  case 2031:
+    reply = state->mode.theme_updates;
+    break;
+
   default:
     vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "?%d;%d$y", num, 0);
     return;
@@ -906,6 +924,115 @@ static void request_version_string(VTermState *state)
 {
   vterm_push_output_sprintf_str(state->vt, C1_DCS, true, ">|libvterm(%d.%d)",
                                 VTERM_VERSION_MAJOR, VTERM_VERSION_MINOR);
+}
+
+static void request_key_encoding_flags(VTermState *state)
+{
+  int screen = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[screen];
+
+  int reply = 0;
+
+  assert(stack->size > 0);
+  VTermKeyEncodingFlags flags = stack->items[stack->size - 1];
+
+  if (flags.disambiguate) {
+    reply |= KEY_ENCODING_DISAMBIGUATE;
+  }
+
+  if (flags.report_events) {
+    reply |= KEY_ENCODING_REPORT_EVENTS;
+  }
+
+  if (flags.report_alternate) {
+    reply |= KEY_ENCODING_REPORT_ALTERNATE;
+  }
+
+  if (flags.report_all_keys) {
+    reply |= KEY_ENCODING_REPORT_ALL_KEYS;
+  }
+
+  if (flags.report_associated) {
+    reply |= KEY_ENCODING_REPORT_ASSOCIATED;
+  }
+
+  vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "?%du", reply);
+}
+
+static void set_key_encoding_flags(VTermState *state, int arg, int mode)
+{
+  // When mode is 3, bits set in arg reset the corresponding mode
+  bool set = mode != 3;
+
+  // When mode is 1, unset bits are reset
+  bool reset_unset = mode == 1;
+
+  struct VTermKeyEncodingFlags flags = { 0 };
+  if (arg & KEY_ENCODING_DISAMBIGUATE) {
+    flags.disambiguate = set;
+  } else if (reset_unset) {
+    flags.disambiguate = false;
+  }
+
+  if (arg & KEY_ENCODING_REPORT_EVENTS) {
+    flags.report_events = set;
+  } else if (reset_unset) {
+    flags.report_events = false;
+  }
+
+  if (arg & KEY_ENCODING_REPORT_ALTERNATE) {
+    flags.report_alternate = set;
+  } else if (reset_unset) {
+    flags.report_alternate = false;
+  }
+  if (arg & KEY_ENCODING_REPORT_ALL_KEYS) {
+    flags.report_all_keys = set;
+  } else if (reset_unset) {
+    flags.report_all_keys = false;
+  }
+
+  if (arg & KEY_ENCODING_REPORT_ASSOCIATED) {
+    flags.report_associated = set;
+  } else if (reset_unset) {
+    flags.report_associated = false;
+  }
+
+  int screen = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[screen];
+  assert(stack->size > 0);
+  stack->items[stack->size - 1] = flags;
+}
+
+static void push_key_encoding_flags(VTermState *state, int arg)
+{
+  int screen = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[screen];
+  assert(stack->size <= ARRAY_SIZE(stack->items));
+
+  if (stack->size == ARRAY_SIZE(stack->items)) {
+    // Evict oldest entry when stack is full
+    for (size_t i = 0; i < ARRAY_SIZE(stack->items) - 1; i++) {
+      stack->items[i] = stack->items[i + 1];
+    }
+  } else {
+    stack->size++;
+  }
+
+  set_key_encoding_flags(state, arg, 1);
+}
+
+static void pop_key_encoding_flags(VTermState *state, int arg)
+{
+  int screen = state->mode.alt_screen ? BUFIDX_ALTSCREEN : BUFIDX_PRIMARY;
+  struct VTermKeyEncodingStack *stack = &state->key_encoding_stacks[screen];
+  if (arg >= stack->size) {
+    stack->size = 1;
+
+    // If a pop request is received that empties the stack, all flags are reset.
+    memset(&stack->items[0], 0, sizeof(stack->items[0]));
+  } else if (arg > 0) {
+    stack->size -= arg;
+  }
 }
 
 static int on_csi(const char *leader, const long args[], int argcount, const char *intermed,
@@ -924,6 +1051,8 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
     switch (leader[0]) {
     case '?':
     case '>':
+    case '<':
+    case '=':
       leader_byte = (int)leader[0];
       break;
     default:
@@ -1387,6 +1516,7 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
 
     {
       char *qmark = (leader_byte == '?') ? "?" : "";
+      bool dark = false;
 
       switch (val) {
       case 0:
@@ -1402,6 +1532,13 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
       case 6:  // CPR - cursor position report
         vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "%s%d;%dR", qmark, state->pos.row + 1,
                                        state->pos.col + 1);
+        break;
+      case 996:
+        if (state->callbacks && state->callbacks->theme) {
+          if (state->callbacks->theme(&dark, state->cbdata)) {
+            vterm_push_output_sprintf_ctrl(state->vt, C1_CSI, "?997;%cn", dark ? '1' : '2');
+          }
+        }
         break;
       }
     }
@@ -1524,6 +1661,23 @@ static int on_csi(const char *leader, const long args[], int argcount, const cha
       state->pos.col += SCROLLREGION_LEFT(state);
     }
 
+    break;
+
+  case LEADER('?', 0x75):  // Kitty query
+    request_key_encoding_flags(state);
+    break;
+
+  case LEADER('>', 0x75):  // Kitty push flags
+    push_key_encoding_flags(state, CSI_ARG_OR(args[0], 0));
+    break;
+
+  case LEADER('<', 0x75):  // Kitty pop flags
+    pop_key_encoding_flags(state, CSI_ARG_OR(args[0], 1));
+    break;
+
+  case LEADER('=', 0x75):  // Kitty set flags
+    val = argcount < 2 || CSI_ARG_IS_MISSING(args[1]) ? 1 : CSI_ARG(args[1]);
+    set_key_encoding_flags(state, CSI_ARG_OR(args[0], 0), val);
     break;
 
   case INTERMED('\'', 0x7D):  // DECIC
@@ -2267,6 +2421,9 @@ int vterm_state_set_termprop(VTermState *state, VTermProp prop, VTermValue *val)
     return 1;
   case VTERM_PROP_FOCUSREPORT:
     state->mode.report_focus = (unsigned)val->boolean;
+    return 1;
+  case VTERM_PROP_THEMEUPDATES:
+    state->mode.theme_updates = (unsigned)val->boolean;
     return 1;
 
   case VTERM_N_PROPS:

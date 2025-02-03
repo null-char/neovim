@@ -1,8 +1,8 @@
-LIBUV_URL https://github.com/libuv/libuv/archive/v1.49.2.tar.gz
-LIBUV_SHA256 388ffcf3370d4cf7c4b3a3205504eea06c4be5f9e80d2ab32d19f8235accc1cf
+LIBUV_URL https://github.com/libuv/libuv/archive/v1.50.0.tar.gz
+LIBUV_SHA256 b1ec56444ee3f1e10c8bd3eed16ba47016ed0b94fe42137435aaf2e0bd574579
 
-LUAJIT_URL https://github.com/LuaJIT/LuaJIT/archive/f73e649a954b599fc184726c376476e7a5c439ca.tar.gz
-LUAJIT_SHA256 bc992b3ae0a8f5f0ebbf141626b7c99fac794c94ec6896d973582525c7ef868d
+LUAJIT_URL https://github.com/LuaJIT/LuaJIT/archive/a4f56a459a588ae768801074b46ba0adcfb49eb1.tar.gz
+LUAJIT_SHA256 b4120332a4191db9c9da2d81f9f11f0d4504fc4cff2dea0f642d3d8f1fcebd0e
 
 LUA_URL https://www.lua.org/ftp/lua-5.1.5.tar.gz
 LUA_SHA256 2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333
@@ -50,11 +50,11 @@ TREESITTER_QUERY_URL https://github.com/tree-sitter-grammars/tree-sitter-query/a
 TREESITTER_QUERY_SHA256 d3a423ab66dc62b2969625e280116678a8a22582b5ff087795222108db2f6a6e
 TREESITTER_MARKDOWN_URL https://github.com/tree-sitter-grammars/tree-sitter-markdown/archive/v0.3.2.tar.gz
 TREESITTER_MARKDOWN_SHA256 5dac48a6d971eb545aab665d59a18180d21963afc781bbf40f9077c06cb82ae5
-TREESITTER_URL https://github.com/tree-sitter/tree-sitter/archive/v0.24.6.tar.gz
-TREESITTER_SHA256 03c7ee1e6f9f4f3821fd4af0ae06e1da60433b304a73ff92ee9694933009121a
+TREESITTER_URL https://github.com/tree-sitter/tree-sitter/archive/v0.25.1.tar.gz
+TREESITTER_SHA256 99a2446075c2edf60e82755c48415d5f6e40f2d9aacb3423c6ca56809b70fe59
 
-WASMTIME_URL https://github.com/bytecodealliance/wasmtime/archive/v25.0.2.tar.gz
-WASMTIME_SHA256 6d1c17c756b83f29f629963228e5fa208ba9d6578421ba2cd07132b6a120accb
+WASMTIME_URL https://github.com/bytecodealliance/wasmtime/archive/v29.0.1.tar.gz
+WASMTIME_SHA256 b94b6c6fd6aebaf05d4c69c1b12b5dc217b0d42c1a95f435b33af63dddfa5304
 
 UNCRUSTIFY_URL https://github.com/uncrustify/uncrustify/archive/uncrustify-0.80.1.tar.gz
 UNCRUSTIFY_SHA256 0e2616ec2f78e12816388c513f7060072ff7942b42f1175eb28b24cb75aaec48

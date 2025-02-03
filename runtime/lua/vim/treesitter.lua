@@ -61,8 +61,6 @@ function M._create_parser(bufnr, lang, opts)
     { on_bytes = bytes_cb, on_detach = detach_cb, on_reload = reload_cb, preview = true }
   )
 
-  self:parse()
-
   return self
 end
 
@@ -151,7 +149,7 @@ end
 
 --- Returns the node's range or an unpacked range table
 ---
----@param node_or_range (TSNode | table) Node or table of positions
+---@param node_or_range TSNode|Range4 Node or table of positions
 ---
 ---@return integer start_row
 ---@return integer start_col
@@ -159,7 +157,8 @@ end
 ---@return integer end_col
 function M.get_node_range(node_or_range)
   if type(node_or_range) == 'table' then
-    return unpack(node_or_range)
+    --- @cast node_or_range -TSNode LuaLS bug
+    return M._range.unpack4(node_or_range)
   else
     return node_or_range:range(false)
   end
@@ -240,7 +239,9 @@ function M.node_contains(node, range)
   -- allow a table so nodes can be mocked
   vim.validate('node', node, { 'userdata', 'table' })
   vim.validate('range', range, M._range.validate, 'integer list with 4 or 6 elements')
-  return M._range.contains({ node:range() }, range)
+  --- @diagnostic disable-next-line: missing-fields LuaLS bug
+  local nrange = { node:range() } --- @type Range4
+  return M._range.contains(nrange, range)
 end
 
 --- Returns a list of highlight captures at the given position
@@ -397,6 +398,8 @@ end
 --- Note: By default, disables regex syntax highlighting, which may be required for some plugins.
 --- In this case, add `vim.bo.syntax = 'on'` after the call to `start`.
 ---
+--- Note: By default, the highlighter parses code asynchronously, using a segment time of 3ms.
+---
 --- Example:
 ---
 --- ```lua
@@ -408,8 +411,8 @@ end
 --- })
 --- ```
 ---
----@param bufnr (integer|nil) Buffer to be highlighted (default: current buffer)
----@param lang (string|nil) Language of the parser (default: from buffer filetype)
+---@param bufnr integer? Buffer to be highlighted (default: current buffer)
+---@param lang string? Language of the parser (default: from buffer filetype)
 function M.start(bufnr, lang)
   bufnr = vim._resolve_bufnr(bufnr)
   local parser = assert(M.get_parser(bufnr, lang, { error = false }))

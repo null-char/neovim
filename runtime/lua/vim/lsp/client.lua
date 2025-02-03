@@ -702,14 +702,14 @@ local wait_result_reason = { [-1] = 'timeout', [-2] = 'interrupted', [-3] = 'err
 ---
 --- @param ... string List to write to the buffer
 local function err_message(...)
-  local chunks = { { table.concat({ ... }) } }
+  local chunks = { { table.concat(vim.iter({ ... }):flatten():totable()) } }
   if vim.in_fast_event() then
     vim.schedule(function()
-      vim.api.nvim_echo(chunks, true, { err = true })
+      api.nvim_echo(chunks, true, { err = true })
       api.nvim_command('redraw')
     end)
   else
-    vim.api.nvim_echo(chunks, true, { err = true })
+    api.nvim_echo(chunks, true, { err = true })
     api.nvim_command('redraw')
   end
 end
@@ -904,18 +904,20 @@ end
 function Client:_get_registration(method, bufnr)
   bufnr = vim._resolve_bufnr(bufnr)
   for _, reg in ipairs(self.registrations[method] or {}) do
-    if not reg.registerOptions or not reg.registerOptions.documentSelector then
+    local regoptions = reg.registerOptions --[[@as {documentSelector:lsp.TextDocumentFilter[]}]]
+    if not regoptions or not regoptions.documentSelector then
       return reg
     end
-    local documentSelector = reg.registerOptions.documentSelector
+    local documentSelector = regoptions.documentSelector
     local language = self:_get_language_id(bufnr)
     local uri = vim.uri_from_bufnr(bufnr)
     local fname = vim.uri_to_fname(uri)
     for _, filter in ipairs(documentSelector) do
+      local flang, fscheme, fpat = filter.language, filter.scheme, filter.pattern
       if
-        not (filter.language and language ~= filter.language)
-        and not (filter.scheme and not vim.startswith(uri, filter.scheme .. ':'))
-        and not (filter.pattern and not vim.glob.to_lpeg(filter.pattern):match(fname))
+        not (flang and language ~= flang)
+        and not (fscheme and not vim.startswith(uri, fscheme .. ':'))
+        and not (type(fpat) == 'string' and not vim.glob.to_lpeg(fpat):match(fname))
       then
         return reg
       end

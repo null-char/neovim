@@ -49,7 +49,8 @@ local function get_border_size(opts)
     if not border_size[border] then
       border_error(border)
     end
-    return unpack(border_size[border])
+    local r = border_size[border]
+    return r[1], r[2]
   end
 
   if 8 % #border ~= 0 then
@@ -1357,7 +1358,7 @@ end
 ---@param bufnrs table list of buffers where the preview window will remain visible
 ---@see autocmd-events
 local function close_preview_autocmd(events, winnr, bufnrs)
-  local augroup = api.nvim_create_augroup('preview_window_' .. winnr, {
+  local augroup = api.nvim_create_augroup('nvim.preview_window_' .. winnr, {
     clear = true,
   })
 
@@ -1432,7 +1433,7 @@ function M._make_floating_popup_size(contents, opts)
       if vim.tbl_isempty(line_widths) then
         for _, line in ipairs(contents) do
           local line_width = vim.fn.strdisplaywidth(line:gsub('%z', '\n'))
-          height = height + math.ceil(line_width / wrap_at)
+          height = height + math.max(1, math.ceil(line_width / wrap_at))
         end
       else
         for i = 1, #contents do
@@ -1568,8 +1569,6 @@ function M.open_floating_preview(contents, syntax, opts)
   if do_stylize then
     local width = M._make_floating_popup_size(contents, opts)
     contents = M._normalize_markdown(contents, { width = width })
-    vim.bo[floating_bufnr].filetype = 'markdown'
-    vim.treesitter.start(floating_bufnr)
   else
     -- Clean up input: trim empty lines
     contents = vim.split(table.concat(contents, '\n'), '\n', { trimempty = true })
@@ -1619,7 +1618,7 @@ function M.open_floating_preview(contents, syntax, opts)
     api.nvim_buf_set_var(bufnr, 'lsp_floating_preview', floating_winnr)
   end
 
-  local augroup_name = ('closing_floating_preview_%d'):format(floating_winnr)
+  local augroup_name = ('nvim.closing_floating_preview_%d'):format(floating_winnr)
   local ok =
     pcall(api.nvim_get_autocmds, { group = augroup_name, pattern = tostring(floating_winnr) })
   if not ok then
@@ -1635,9 +1634,6 @@ function M.open_floating_preview(contents, syntax, opts)
     })
   end
 
-  if do_stylize then
-    vim.wo[floating_winnr].conceallevel = 2
-  end
   vim.wo[floating_winnr].foldenable = false -- Disable folding.
   vim.wo[floating_winnr].wrap = opts.wrap -- Soft wrapping.
   vim.wo[floating_winnr].breakindent = true -- Slightly better list presentation.
@@ -1646,11 +1642,17 @@ function M.open_floating_preview(contents, syntax, opts)
   vim.bo[floating_bufnr].modifiable = false
   vim.bo[floating_bufnr].bufhidden = 'wipe'
 
+  if do_stylize then
+    vim.wo[floating_winnr].conceallevel = 2
+    vim.bo[floating_bufnr].filetype = 'markdown'
+    vim.treesitter.start(floating_bufnr)
+  end
+
   return floating_bufnr, floating_winnr
 end
 
 do --[[ References ]]
-  local reference_ns = api.nvim_create_namespace('vim_lsp_references')
+  local reference_ns = api.nvim_create_namespace('nvim.lsp.references')
 
   --- Removes document highlights from a buffer.
   ---
@@ -1896,6 +1898,7 @@ function M.make_position_params(window, position_encoding)
       'position_encoding param is required in vim.lsp.util.make_position_params. Defaulting to position encoding of the first client.',
       vim.log.levels.WARN
     )
+    --- @diagnostic disable-next-line: deprecated
     position_encoding = M._get_offset_encoding(buf)
   end
   return {
@@ -1952,6 +1955,7 @@ function M.make_range_params(window, position_encoding)
       'position_encoding param is required in vim.lsp.util.make_range_params. Defaulting to position encoding of the first client.',
       vim.log.levels.WARN
     )
+    --- @diagnostic disable-next-line: deprecated
     position_encoding = M._get_offset_encoding(buf)
   end
   local position = make_position_param(window, position_encoding)
@@ -1981,6 +1985,7 @@ function M.make_given_range_params(start_pos, end_pos, bufnr, position_encoding)
       'position_encoding param is required in vim.lsp.util.make_given_range_params. Defaulting to position encoding of the first client.',
       vim.log.levels.WARN
     )
+    --- @diagnostic disable-next-line: deprecated
     position_encoding = M._get_offset_encoding(bufnr)
   end
   --- @type [integer, integer]

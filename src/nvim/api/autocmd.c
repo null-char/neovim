@@ -68,32 +68,31 @@ static int64_t next_autocmd_id = 1;
 /// match any combination of them.
 ///
 /// @param opts Dict with at least one of the following:
-///             - group (string|integer): the autocommand group name or id to match against.
-///             - event (string|array): event or events to match against |autocmd-events|.
-///             - pattern (string|array): pattern or patterns to match against |autocmd-pattern|.
-///             Cannot be used with {buffer}
-///             - buffer: Buffer number or list of buffer numbers for buffer local autocommands
+///             - buffer: (integer) Buffer number or list of buffer numbers for buffer local autocommands
 ///             |autocmd-buflocal|. Cannot be used with {pattern}
+///             - event: (string|table) event or events to match against |autocmd-events|.
+///             - id: (integer) Autocommand ID to match.
+///             - group: (string|table) the autocommand group name or id to match against.
+///             - pattern: (string|table) pattern or patterns to match against |autocmd-pattern|.
+///             Cannot be used with {buffer}
 /// @return Array of autocommands matching the criteria, with each item
 ///             containing the following fields:
-///             - id (number): the autocommand id (only when defined with the API).
-///             - group (integer): the autocommand group id.
-///             - group_name (string): the autocommand group name.
-///             - desc (string): the autocommand description.
-///             - event (string): the autocommand event.
-///             - command (string): the autocommand command. Note: this will be empty if a callback is set.
-///             - callback (function|string|nil): Lua function or name of a Vim script function
+///             - buffer: (integer) the buffer number.
+///             - buflocal: (boolean) true if the autocommand is buffer local.
+///             - command: (string) the autocommand command. Note: this will be empty if a callback is set.
+///             - callback: (function|string|nil): Lua function or name of a Vim script function
 ///               which is executed when this autocommand is triggered.
-///             - once (boolean): whether the autocommand is only run once.
-///             - pattern (string): the autocommand pattern.
+///             - desc: (string) the autocommand description.
+///             - event: (string) the autocommand event.
+///             - id: (integer) the autocommand id (only when defined with the API).
+///             - group: (integer) the autocommand group id.
+///             - group_name: (string) the autocommand group name.
+///             - once: (boolean) whether the autocommand is only run once.
+///             - pattern: (string) the autocommand pattern.
 ///               If the autocommand is buffer local |autocmd-buffer-local|:
-///             - buflocal (boolean): true if the autocommand is buffer local.
-///             - buffer (number): the buffer number.
 Array nvim_get_autocmds(Dict(get_autocmds) *opts, Arena *arena, Error *err)
   FUNC_API_SINCE(9)
 {
-  // TODO(tjdevries): Would be cool to add nvim_get_autocmds({ id = ... })
-
   ArrayBuilder autocmd_list = KV_INITIAL_VALUE;
   kvi_init(autocmd_list);
   char *pattern_filters[AUCMD_MAX_PATTERNS];
@@ -126,6 +125,8 @@ Array nvim_get_autocmds(Dict(get_autocmds) *opts, Arena *arena, Error *err)
       goto cleanup;
     });
   }
+
+  int id = (HAS_KEY(opts, get_autocmds, id)) ? (int)opts->id : -1;
 
   if (HAS_KEY(opts, get_autocmds, event)) {
     check_event = true;
@@ -237,6 +238,10 @@ Array nvim_get_autocmds(Dict(get_autocmds) *opts, Arena *arena, Error *err)
         continue;
       }
 
+      if (id != -1 && ac->id != id) {
+        continue;
+      }
+
       // Skip autocmds from invalid groups if passed.
       if (group != 0 && ap->group != group) {
         continue;
@@ -285,10 +290,12 @@ Array nvim_get_autocmds(Dict(get_autocmds) *opts, Arena *arena, Error *err)
         PUT_C(autocmd_info, "desc", CSTR_AS_OBJ(ac->desc));
       }
 
-      if (ac->exec.type == CALLABLE_CB) {
+      if (ac->handler_cmd) {
+        PUT_C(autocmd_info, "command", CSTR_AS_OBJ(ac->handler_cmd));
+      } else {
         PUT_C(autocmd_info, "command", STRING_OBJ(STRING_INIT));
 
-        Callback *cb = &ac->exec.callable.cb;
+        Callback *cb = &ac->handler_fn;
         switch (cb->type) {
         case kCallbackLua:
           if (nlua_ref_is_function(cb->data.luaref)) {
@@ -302,8 +309,6 @@ Array nvim_get_autocmds(Dict(get_autocmds) *opts, Arena *arena, Error *err)
         case kCallbackNone:
           abort();
         }
-      } else {
-        PUT_C(autocmd_info, "command", CSTR_AS_OBJ(ac->exec.callable.cmd));
       }
 
       PUT_C(autocmd_info, "pattern", CSTR_AS_OBJ(ap->pat));
@@ -316,23 +321,6 @@ Array nvim_get_autocmds(Dict(get_autocmds) *opts, Arena *arena, Error *err)
       } else {
         PUT_C(autocmd_info, "buflocal", BOOLEAN_OBJ(false));
       }
-
-      // TODO(sctx): It would be good to unify script_ctx to actually work with lua
-      //  right now it's just super weird, and never really gives you the info that
-      //  you would expect from this.
-      //
-      //  I think we should be able to get the line number, filename, etc. from lua
-      //  when we're executing something, and it should be easy to then save that
-      //  info here.
-      //
-      //  I think it's a big loss not getting line numbers of where options, autocmds,
-      //  etc. are set (just getting "Sourced (lua)" or something is not that helpful.
-      //
-      //  Once we do that, we can put these into the autocmd_info, but I don't think it's
-      //  useful to do that at this time.
-      //
-      // PUT_C(autocmd_info, "sid", INTEGER_OBJ(ac->script_ctx.sc_sid));
-      // PUT_C(autocmd_info, "lnum", INTEGER_OBJ(ac->script_ctx.sc_lnum));
 
       kvi_push(autocmd_list, DICT_OBJ(autocmd_info));
     }
@@ -406,8 +394,8 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
 {
   int64_t autocmd_id = -1;
   char *desc = NULL;
-  AucmdExecutable aucmd = AUCMD_EXECUTABLE_INIT;
-  Callback cb = CALLBACK_NONE;
+  char *handler_cmd = NULL;
+  Callback handler_fn = CALLBACK_NONE;
 
   Array event_array = unpack_string_or_array(event, "event", true, arena, err);
   if (ERROR_SET(err)) {
@@ -432,13 +420,13 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
         goto cleanup;
       });
 
-      cb.type = kCallbackLua;
-      cb.data.luaref = callback->data.luaref;
+      handler_fn.type = kCallbackLua;
+      handler_fn.data.luaref = callback->data.luaref;
       callback->data.luaref = LUA_NOREF;
       break;
     case kObjectTypeString:
-      cb.type = kCallbackFuncref;
-      cb.data.funcref = string_to_cstr(callback->data.string);
+      handler_fn.type = kCallbackFuncref;
+      handler_fn.data.funcref = string_to_cstr(callback->data.string);
       break;
     default:
       VALIDATE_EXP(false, "callback", "Lua function or Vim function name",
@@ -446,12 +434,8 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
         goto cleanup;
       });
     }
-
-    aucmd.type = CALLABLE_CB;
-    aucmd.callable.cb = cb;
   } else if (HAS_KEY(opts, create_autocmd, command)) {
-    aucmd.type = CALLABLE_EX;
-    aucmd.callable.cmd = string_to_cstr(opts->command);
+    handler_cmd = string_to_cstr(opts->command);
   } else {
     VALIDATE(false, "%s", "Required: 'command' or 'callback'", {
       goto cleanup;
@@ -491,7 +475,6 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
     int retval;
 
     FOREACH_ITEM(patterns, pat, {
-      // See: TODO(sctx)
       WITH_SCRIPT_CONTEXT(channel_id, {
         retval = autocmd_register(autocmd_id,
                                   event_nr,
@@ -501,7 +484,8 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
                                   opts->once,
                                   opts->nested,
                                   desc,
-                                  aucmd);
+                                  handler_cmd,
+                                  &handler_fn);
       });
 
       if (retval == FAIL) {
@@ -512,7 +496,11 @@ Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autoc
   });
 
 cleanup:
-  aucmd_exec_free(&aucmd);
+  if (handler_cmd) {
+    XFREE_CLEAR(handler_cmd);
+  } else {
+    callback_free(&handler_fn);
+  }
 
   return autocmd_id;
 }

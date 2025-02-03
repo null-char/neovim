@@ -513,7 +513,9 @@ local function lsp_enable_callback(bufnr)
         ---@param root_dir string
         config.root_dir(function(root_dir)
           config.root_dir = root_dir
-          start(config)
+          vim.schedule(function()
+            start(config)
+          end)
         end)
       else
         start(config)
@@ -544,7 +546,7 @@ function lsp.enable(name, enable)
     if nm == '*' then
       error('Invalid name')
     end
-    lsp._enabled_configs[nm] = enable == false and nil or {}
+    lsp._enabled_configs[nm] = enable ~= false and {} or nil
   end
 
   if not next(lsp._enabled_configs) then
@@ -841,7 +843,7 @@ local function buf_attach(bufnr)
   attached_buffers[bufnr] = true
 
   local uri = vim.uri_from_bufnr(bufnr)
-  local augroup = ('lsp_b_%d_save'):format(bufnr)
+  local augroup = ('nvim.lsp.b_%d_save'):format(bufnr)
   local group = api.nvim_create_augroup(augroup, { clear = true })
   api.nvim_create_autocmd('BufWritePre', {
     group = group,
@@ -1389,12 +1391,13 @@ end
 --- |LspAttach| autocommand. Example:
 ---
 --- ```lua
---- vim.api.nvim_create_autocommand('LspAttach', {
+--- vim.api.nvim_create_autocmd('LspAttach', {
 ---   callback = function(args)
 ---     local client = vim.lsp.get_client_by_id(args.data.client_id)
 ---     if client:supports_method('textDocument/foldingRange') then
----       vim.wo.foldmethod = 'expr'
----       vim.wo.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+---       local win = vim.api.nvim_get_current_win()
+---       vim.wo[win][0].foldmethod = 'expr'
+---       vim.wo[win][0].foldexpr = 'v:lua.vim.lsp.foldexpr()'
 ---     end
 ---   end,
 --- })

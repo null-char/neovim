@@ -22,13 +22,6 @@ local M = {
   paths = Paths,
 }
 
---- @param p string
---- @return string
-local function relpath(p)
-  p = vim.fs.normalize(p)
-  return (p:gsub('^' .. uv.cwd, ''))
-end
-
 --- @param path string
 --- @return boolean
 function M.isdir(path)
@@ -45,14 +38,15 @@ end
 --- (Only on Windows) Replaces yucky "\\" slashes with delicious "/" slashes in a string, or all
 --- string values in a table (recursively).
 ---
---- @param obj string|table
---- @return any
+--- @generic T: string|table
+--- @param obj T
+--- @return T|nil
 function M.fix_slashes(obj)
   if not M.is_os('win') then
     return obj
   end
   if type(obj) == 'string' then
-    local ret = obj:gsub('\\', '/')
+    local ret = string.gsub(obj, '\\', '/')
     return ret
   elseif type(obj) == 'table' then
     --- @cast obj table<any,any>
@@ -394,15 +388,18 @@ end
 
 local sysname = uv.os_uname().sysname:lower()
 
---- @param s 'win'|'mac'|'freebsd'|'openbsd'|'bsd'
+--- @param s 'win'|'mac'|'linux'|'freebsd'|'openbsd'|'bsd'
 --- @return boolean
 function M.is_os(s)
-  if not (s == 'win' or s == 'mac' or s == 'freebsd' or s == 'openbsd' or s == 'bsd') then
+  if
+    not (s == 'win' or s == 'mac' or s == 'linux' or s == 'freebsd' or s == 'openbsd' or s == 'bsd')
+  then
     error('unknown platform: ' .. tostring(s))
   end
   return not not (
     (s == 'win' and (sysname:find('windows') or sysname:find('mingw')))
     or (s == 'mac' and sysname == 'darwin')
+    or (s == 'linux' and sysname == 'linux')
     or (s == 'freebsd' and sysname == 'freebsd')
     or (s == 'openbsd' and sysname == 'openbsd')
     or (s == 'bsd' and sysname:find('bsd'))
@@ -482,7 +479,8 @@ function M.check_cores(app, force) -- luacheck: ignore
   -- "./Xtest-tmpdir/" => "Xtest%-tmpdir"
   local local_tmpdir = nil
   if tmpdir_is_local and tmpdir then
-    local_tmpdir = vim.pesc(relpath(tmpdir):gsub('^[ ./]+', ''):gsub('%/+$', ''))
+    local_tmpdir =
+      vim.pesc(vim.fs.relpath(assert(vim.uv.cwd()), tmpdir):gsub('^[ ./]+', ''):gsub('%/+$', ''))
   end
 
   local db_cmd --- @type string

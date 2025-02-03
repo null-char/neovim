@@ -22,6 +22,7 @@ API
 • nvim_out_write()	Use |nvim_echo()|.
 • nvim_err_write()	Use |nvim_echo()| with `{err=true}`.
 • nvim_err_writeln()	Use |nvim_echo()| with `{err=true}`.
+• nvim_buf_add_highlight()	Use |vim.hl.range()| or |nvim_buf_set_extmark()|
 
 DIAGNOSTICS
 • *vim.diagnostic.goto_next()*	Use |vim.diagnostic.jump()| with `{count=1, float=true}` instead.
@@ -63,10 +64,6 @@ LUA
 • vim.region()		Use |getregionpos()| instead.
 • *vim.highlight*	Renamed to |vim.hl|.
 • vim.validate(opts: table) Use form 1. See |vim.validate()|.
-
-TREESITTER
-• *TSNode:child_containing_descendant()* Use |TSNode:child_with_descendant()|
-  instead; it is identical except that it can return the descendant itself.
 
 VIMSCRIPT
 • *termopen()* Use |jobstart() with `{term: v:true}`.

@@ -5,6 +5,9 @@ local api = vim.api
 local language = require('vim.treesitter.language')
 local memoize = vim.func._memoize
 
+local MODELINE_FORMAT = '^;+%s*inherits%s*:?%s*([a-z_,()]+)%s*$'
+local EXTENDS_FORMAT = '^;+%s*extends%s*$'
+
 local M = {}
 
 local function is_directive(name)
@@ -167,9 +170,6 @@ function M.get_files(lang, query_name, is_included)
   -- ;+ inherits: ({language},)*{language}
   --
   -- {language} ::= {lang} | ({lang})
-  local MODELINE_FORMAT = '^;+%s*inherits%s*:?%s*([a-z_,()]+)%s*$'
-  local EXTENDS_FORMAT = '^;+%s*extends%s*$'
-
   for _, filename in ipairs(lang_files) do
     local file, err = io.open(filename, 'r')
     if not file then
@@ -242,8 +242,8 @@ local function read_query_files(filenames)
   return table.concat(contents, '')
 end
 
--- The explicitly set queries from |vim.treesitter.query.set()|
----@type table<string,table<string,vim.treesitter.Query>>
+-- The explicitly set query strings from |vim.treesitter.query.set()|
+---@type table<string,table<string,string>>
 local explicit_queries = setmetatable({}, {
   __index = function(t, k)
     local lang_queries = {}
@@ -255,14 +255,27 @@ local explicit_queries = setmetatable({}, {
 
 --- Sets the runtime query named {query_name} for {lang}
 ---
---- This allows users to override any runtime files and/or configuration
+--- This allows users to override or extend any runtime files and/or configuration
 --- set by plugins.
+---
+--- For example, you could enable spellchecking of `C` identifiers with the
+--- following code:
+--- ```lua
+--- vim.treesitter.query.set(
+---   'c',
+---   'highlights',
+---   [[;inherits c
+---   (identifier) @spell]])
+--- ]])
+--- ```
 ---
 ---@param lang string Language to use for the query
 ---@param query_name string Name of the query (e.g., "highlights")
 ---@param text string Query text (unparsed).
 function M.set(lang, query_name, text)
-  explicit_queries[lang][query_name] = M.parse(lang, text)
+  --- @diagnostic disable-next-line: undefined-field LuaLS bad at generics
+  M.get:clear(lang, query_name)
+  explicit_queries[lang][query_name] = text
 end
 
 --- Returns the runtime query {query_name} for {lang}.
@@ -272,19 +285,59 @@ end
 ---
 ---@return vim.treesitter.Query? : Parsed query. `nil` if no query files are found.
 M.get = memoize('concat-2', function(lang, query_name)
-  if explicit_queries[lang][query_name] then
-    return explicit_queries[lang][query_name]
-  end
+  local query_string ---@type string
 
-  local query_files = M.get_files(lang, query_name)
-  local query_string = read_query_files(query_files)
+  if explicit_queries[lang][query_name] then
+    local query_files = {}
+    local base_langs = {} ---@type string[]
+
+    for line in explicit_queries[lang][query_name]:gmatch('([^\n]*)\n?') do
+      if not vim.startswith(line, ';') then
+        break
+      end
+
+      local lang_list = line:match(MODELINE_FORMAT)
+      if lang_list then
+        for _, incl_lang in ipairs(vim.split(lang_list, ',')) do
+          local is_optional = incl_lang:match('%(.*%)')
+
+          if is_optional then
+            add_included_lang(base_langs, lang, incl_lang:sub(2, #incl_lang - 1))
+          else
+            add_included_lang(base_langs, lang, incl_lang)
+          end
+        end
+      elseif line:match(EXTENDS_FORMAT) then
+        table.insert(base_langs, lang)
+      end
+    end
+
+    for _, base_lang in ipairs(base_langs) do
+      local base_files = M.get_files(base_lang, query_name, true)
+      vim.list_extend(query_files, base_files)
+    end
+
+    query_string = read_query_files(query_files) .. explicit_queries[lang][query_name]
+  else
+    local query_files = M.get_files(lang, query_name)
+    query_string = read_query_files(query_files)
+  end
 
   if #query_string == 0 then
     return nil
   end
 
   return M.parse(lang, query_string)
-end)
+end, false)
+
+api.nvim_create_autocmd('OptionSet', {
+  pattern = { 'runtimepath' },
+  group = api.nvim_create_augroup('nvim.treesitter.query_cache_reset', { clear = true }),
+  callback = function()
+    --- @diagnostic disable-next-line: undefined-field LuaLS bad at generics
+    M.get:clear()
+  end,
+})
 
 --- Parses a {query} string and returns a `Query` object (|lua-treesitter-query|), which can be used
 --- to search the tree for the query patterns (via |Query:iter_captures()|, |Query:iter_matches()|),
@@ -292,7 +345,7 @@ end)
 ---   - `captures`: a list of unique capture names defined in the query (alias: `info.captures`).
 ---   - `info.patterns`: information about predicates.
 ---
---- Example (to try it, use `yxx` or select the code then run `:'<,'>lua`):
+--- Example:
 --- ```lua
 --- local query = vim.treesitter.query.parse('vimdoc', [[
 ---   ; query
@@ -316,7 +369,7 @@ M.parse = memoize('concat-2', function(lang, query)
   assert(language.add(lang))
   local ts_query = vim._ts_parse_query(lang, query)
   return Query.new(lang, ts_query)
-end)
+end, false)
 
 --- Implementations of predicates that can optionally be prefixed with "any-".
 ---
@@ -904,8 +957,8 @@ end
 ---@param start? integer Starting line for the search. Defaults to `node:start()`.
 ---@param stop? integer Stopping line for the search (end-exclusive). Defaults to `node:end_()`.
 ---
----@return (fun(end_line: integer|nil): integer, TSNode, vim.treesitter.query.TSMetadata, TSQueryMatch):
----        capture id, capture node, metadata, match
+---@return (fun(end_line: integer|nil): integer, TSNode, vim.treesitter.query.TSMetadata, TSQueryMatch, TSTree):
+---        capture id, capture node, metadata, match, tree
 ---
 ---@note Captures are only returned if the query pattern of a specific capture contained predicates.
 function Query:iter_captures(node, source, start, stop)
@@ -915,6 +968,8 @@ function Query:iter_captures(node, source, start, stop)
 
   start, stop = value_or_node_range(start, stop, node)
 
+  -- Copy the tree to ensure it is valid during the entire lifetime of the iterator
+  local tree = node:tree():copy()
   local cursor = vim._create_ts_querycursor(node, self.query, start, stop, { match_limit = 256 })
 
   -- For faster checks that a match is not in the cache.
@@ -961,7 +1016,7 @@ function Query:iter_captures(node, source, start, stop)
       match_cache[match_id] = metadata
     end
 
-    return capture, captured_node, metadata, match
+    return capture, captured_node, metadata, match, tree
   end
   return iter
 end
@@ -1002,7 +1057,7 @@ end
 ---   (last) node instead of the full list of matching nodes. This option is only for backward
 ---   compatibility and will be removed in a future release.
 ---
----@return (fun(): integer, table<integer, TSNode[]>, vim.treesitter.query.TSMetadata): pattern id, match, metadata
+---@return (fun(): integer, table<integer, TSNode[]>, vim.treesitter.query.TSMetadata, TSTree): pattern id, match, metadata, tree
 function Query:iter_matches(node, source, start, stop, opts)
   opts = opts or {}
   opts.match_limit = opts.match_limit or 256
@@ -1013,6 +1068,8 @@ function Query:iter_matches(node, source, start, stop, opts)
 
   start, stop = value_or_node_range(start, stop, node)
 
+  -- Copy the tree to ensure it is valid during the entire lifetime of the iterator
+  local tree = node:tree():copy()
   local cursor = vim._create_ts_querycursor(node, self.query, start, stop, opts)
 
   local function iter()
@@ -1050,7 +1107,7 @@ function Query:iter_matches(node, source, start, stop, opts)
     end
 
     -- TODO(lewis6991): create a new function that returns {match, metadata}
-    return pattern_i, captures, metadata
+    return pattern_i, captures, metadata, tree
   end
   return iter
 end
