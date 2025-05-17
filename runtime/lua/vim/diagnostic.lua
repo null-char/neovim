@@ -834,9 +834,22 @@ local function get_diagnostics(bufnr, opts, clamp)
 
   ---@param b integer
   ---@param d vim.Diagnostic
+  local match_enablement = function(d, b)
+    if opts.enabled == nil then
+      return true
+    end
+
+    local enabled = M.is_enabled({ bufnr = b, ns_id = d.namespace })
+
+    return (enabled and opts.enabled) or (not enabled and not opts.enabled)
+  end
+
+  ---@param b integer
+  ---@param d vim.Diagnostic
   local function add(b, d)
     if
       match_severity(d)
+      and match_enablement(d, b)
       and (not opts.lnum or (opts.lnum >= d.lnum and opts.lnum <= (d.end_lnum or d.lnum)))
     then
       if clamp and api.nvim_buf_is_loaded(b) then
@@ -909,6 +922,9 @@ local function set_list(loclist, opts)
   -- Don't clamp line numbers since the quickfix list can already handle line
   -- numbers beyond the end of the buffer
   local diagnostics = get_diagnostics(bufnr, opts --[[@as vim.diagnostic.GetOpts]], false)
+  if opts.format then
+    diagnostics = reformat_diagnostics(opts.format, diagnostics)
+  end
   local items = M.toqflist(diagnostics)
   local qf_id = nil
   if loclist then
@@ -1342,6 +1358,11 @@ end
 ---
 --- See |diagnostic-severity|.
 --- @field severity? vim.diagnostic.SeverityFilter
+---
+--- Limit diagnostics to only enabled or disabled. If nil, enablement is ignored.
+--- See |vim.diagnostic.enable()|
+--- (default: `nil`)
+--- @field enabled? boolean
 
 --- Configuration table with the keys listed below. Some parameters can have their default values
 --- changed with |vim.diagnostic.config()|.
@@ -2348,8 +2369,8 @@ end
 --- @class vim.diagnostic.setqflist.Opts
 --- @inlinedoc
 ---
---- Only add diagnostics from the given namespace.
---- @field namespace? integer
+--- Only add diagnostics from the given namespace(s).
+--- @field namespace? integer[]|integer
 ---
 --- Open quickfix list after setting.
 --- (default: `true`)
@@ -2361,6 +2382,11 @@ end
 ---
 --- See |diagnostic-severity|.
 --- @field severity? vim.diagnostic.SeverityFilter
+---
+--- A function that takes a diagnostic as input and returns a string or nil.
+--- If the return value is nil, the diagnostic is not displayed in the quickfix list.
+--- Else the output text is used to display the diagnostic.
+--- @field format? fun(diagnostic:vim.Diagnostic): string?
 
 --- Add all diagnostics to the quickfix list.
 ---
@@ -2373,8 +2399,8 @@ end
 --- @class vim.diagnostic.setloclist.Opts
 --- @inlinedoc
 ---
---- Only add diagnostics from the given namespace.
---- @field namespace? integer
+--- Only add diagnostics from the given namespace(s).
+--- @field namespace? integer[]|integer
 ---
 --- Window number to set location list for.
 --- (default: `0`)
@@ -2389,6 +2415,11 @@ end
 ---
 --- See |diagnostic-severity|.
 --- @field severity? vim.diagnostic.SeverityFilter
+---
+--- A function that takes a diagnostic as input and returns a string or nil.
+--- If the return value is nil, the diagnostic is not displayed in the location list.
+--- Else the output text is used to display the diagnostic.
+--- @field format? fun(diagnostic:vim.Diagnostic): string?
 
 --- Add buffer diagnostics to the location list.
 ---

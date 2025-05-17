@@ -2777,11 +2777,15 @@ func Test_complete_opt_fuzzy()
     autocmd CompleteChanged * :call OnPumChange()
   augroup END
 
+  let g:change = 0
   func Omni_test(findstart, base)
     if a:findstart
       return col(".")
     endif
-    return [#{word: "foo"}, #{word: "foobar"}, #{word: "fooBaz"}, #{word: "foobala"}, #{word: "你好吗"}, #{word: "我好"}]
+    if g:change == 0
+      return [#{word: "foo"}, #{word: "foobar"}, #{word: "fooBaz"}, #{word: "foobala"}, #{word: "你好吗"}, #{word: "我好"}]
+    endif
+    return [#{word: "for i = .."}, #{word: "bar"}, #{word: "foo"}, #{word: "for .. ipairs"}, #{word: "for .. pairs"}]
   endfunc
 
   new
@@ -2877,6 +2881,15 @@ func Test_complete_opt_fuzzy()
   " issue #15412
   call feedkeys("Salpha bravio charlie\<CR>alpha\<C-X>\<C-N>\<C-X>\<C-N>\<C-X>\<C-N>\<ESC>", 'tx')
   call assert_equal('alpha bravio charlie', getline('.'))
+
+  set cot=fuzzy,menu,noinsert
+  call feedkeys(":let g:change=1\<CR>")
+  call feedkeys("S\<C-X>\<C-O>for\<C-N>\<C-N>\<C-N>", 'tx')
+  call assert_equal('for', getline('.'))
+  call feedkeys("S\<C-X>\<C-O>for\<C-P>", 'tx')
+  call assert_equal('for', getline('.'))
+  call feedkeys("S\<C-X>\<C-O>for\<C-P>\<C-P>", 'tx')
+  call assert_equal('for .. ipairs', getline('.'))
 
   " clean up
   set omnifunc=
@@ -3761,6 +3774,17 @@ func Test_complete_match()
   set ise=\\,,->
   call feedkeys("Sabc, \<ESC>:let g:result=complete_match()\<CR>", 'tx')
   call assert_equal([[4, ',']], g:result)
+
+  set ise=\ ,=
+  call feedkeys("Sif true  \<ESC>:let g:result=complete_match()\<CR>", 'tx')
+  call assert_equal([[8, ' ']], g:result)
+  call feedkeys("Slet a = \<ESC>:let g:result=complete_match()\<CR>", 'tx')
+  call assert_equal([[7, '=']], g:result)
+  set ise={,\ ,=
+  call feedkeys("Sif true  \<ESC>:let g:result=complete_match()\<CR>", 'tx')
+  call assert_equal([[8, ' ']], g:result)
+  call feedkeys("S{ \<ESC>:let g:result=complete_match()\<CR>", 'tx')
+  call assert_equal([[1, '{']], g:result)
 
   bw!
   unlet g:result
