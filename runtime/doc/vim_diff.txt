@@ -209,6 +209,10 @@ nvim.swapfile:
   swapfile is owned by a running Nvim process. Shows |W325| "Ignoring
   swapfile…" message.
 
+nvim.find_exrc:
+- VimEnter: Extend 'exrc' to also search for project-local configuration files
+  in all parent directories.
+
 ==============================================================================
 New Features                                                   *nvim-features*
 
@@ -323,6 +327,7 @@ Functions:
 - |matchadd()| can be called before highlight group is defined
 - |tempname()| tries to recover if the Nvim |tempdir| disappears.
 - |writefile()| with "p" flag creates parent directories.
+- |searchcount()|'s maximal value is raised from 99 to 999.
 
 Highlight groups:
 - |highlight-blend| controls blend level for a highlight group

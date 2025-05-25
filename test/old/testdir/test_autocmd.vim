@@ -4406,4 +4406,132 @@ func Test_WinScrolled_Resized_eiw()
   call StopVimInTerminal(buf)
 endfunc
 
+func Test_eventignorewin_non_current()
+  defer CleanUpTestAuGroup()
+  let s:triggered = ''
+  augroup testing
+    " Will set <abuf> to the buffer of the closing window.
+    autocmd WinClosed * let s:triggered = 'WinClosed'
+  augroup END
+  let initial_win = win_getid()
+
+  new
+  let new_buf = bufnr()
+  " Only set for one of the windows into the new buffer.
+  setlocal eventignorewin=all
+  split
+  setlocal eventignorewin=
+  let close_winnr = winnr()
+
+  " Return to the window where the buffer is non-current. WinClosed should
+  " trigger as not all windows into new_buf have 'eventignorewin' set for it.
+  call win_gotoid(initial_win)
+  call assert_notequal(new_buf, bufnr())
+  execute close_winnr 'close'
+  call assert_equal('WinClosed', s:triggered)
+
+  wincmd w
+  call assert_equal(new_buf, bufnr())
+  tab split
+  setlocal eventignorewin=
+  let close_winnr = win_getid()
+
+  " Ensure that new_buf's window in the other tabpage with 'eventignorewin'
+  " unset allows WinClosed to run when new_buf is non-current.
+  call win_gotoid(initial_win)
+  call assert_notequal(new_buf, bufnr())
+  let s:triggered = ''
+  only!
+  call assert_equal('WinClosed', s:triggered)
+  call assert_equal(1, win_findbuf(new_buf)->len())
+
+  " Create an only window to new_buf with 'eventignorewin' set.
+  tabonly!
+  execute new_buf 'sbuffer'
+  setlocal eventignorewin=all
+  wincmd p
+  call assert_equal(1, win_findbuf(new_buf)->len())
+  call assert_notequal(new_buf, bufnr())
+
+  " Closing a window unrelated to new_buf should not block WinClosed.
+  split
+  let s:triggered = ''
+  close
+  call assert_equal('WinClosed', s:triggered)
+  call assert_equal(1, win_findbuf(new_buf)->len())
+
+  " Check WinClosed is blocked when we close the only window to new_buf (that
+  " has 'eventignorewin' set) while new_buf is non-current.
+  call assert_notequal(new_buf, bufnr())
+  let s:triggered = ''
+  only!
+  call assert_equal('', s:triggered)
+  call assert_equal(0, win_findbuf(new_buf)->len())
+
+  augroup testing
+    autocmd!
+    autocmd BufNew * ++once let s:triggered = 'BufNew'
+  augroup END
+
+  " Buffer not shown in a window, 'eventignorewin' should not block (and
+  " can't even be set for it anyway in this case).
+  badd foo
+  call assert_equal('BufNew', s:triggered)
+
+  unlet! s:triggered
+  %bw!
+endfunc
+
+func Test_reuse_curbuf_leak()
+  new bar
+  let s:bar_buf = bufnr()
+  augroup testing
+    autocmd!
+    autocmd BufDelete * ++once let s:triggered = 1 | execute s:bar_buf 'buffer'
+  augroup END
+  enew
+  let empty_buf = bufnr()
+
+  " Old curbuf should be reused, firing BufDelete. As BufDelete changes curbuf,
+  " reusing the buffer would fail and leak the ffname.
+  edit foo
+  call assert_equal(1, s:triggered)
+  " Wasn't reused because the buffer changed, but buffer "foo" is still created.
+  call assert_equal(1, bufexists(empty_buf))
+  call assert_notequal(empty_buf, bufnr())
+  call assert_equal('foo', bufname())
+  call assert_equal('bar', bufname(s:bar_buf))
+
+  unlet! s:bar_buf s:triggered
+  call CleanUpTestAuGroup()
+  %bw!
+endfunc
+
+func Test_reuse_curbuf_switch()
+  edit asdf
+  let s:asdf_win = win_getid()
+  new
+  let other_buf = bufnr()
+  let other_win = win_getid()
+  augroup testing
+    autocmd!
+    autocmd BufUnload * ++once let s:triggered = 1
+          \| call assert_fails('split', 'E1159:')
+          \| call win_gotoid(s:asdf_win)
+  augroup END
+
+  " Check BufUnload changing curbuf does not cause buflist_new to create a new
+  " buffer while leaving "other_buf" unloaded in a window.
+  enew
+  call assert_equal(1, s:triggered)
+  call assert_equal(other_buf, bufnr())
+  call assert_equal(other_win, win_getid())
+  call assert_equal(1, win_findbuf(other_buf)->len())
+  call assert_equal(1, bufloaded(other_buf))
+
+  unlet! s:asdf_win s:triggered
+  call CleanUpTestAuGroup()
+  %bw!
+endfunc
+
 " vim: shiftwidth=2 sts=2 expandtab

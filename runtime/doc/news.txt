@@ -122,10 +122,16 @@ DEFAULTS
 
 • 'statusline' default is exposed as a statusline expression (previously it
   was implemented as an internal C routine).
+• Project-local configuration ('exrc') is also loaded from parent directories.
+  Unset 'exrc' to stop further search.
 
 DIAGNOSTICS
 
-• todo
+• |vim.diagnostic.setloclist()| and |vim.diagnostic.setqflist()| now support a
+  `format` function to modify (or filter) diagnostics before being set in the
+  location/quickfix list.
+• |vim.diagnostic.get()| now accepts an `enabled` filter to only return
+  enabled or disabled diagnostics.
 
 EDITOR
 
@@ -135,6 +141,7 @@ EDITOR
 EVENTS
 
 • |CmdlineLeavePre| triggered before preparing to leave the command line.
+• New `append` paremeter for |ui-messages| `msg_show` event.
 
 HIGHLIGHTS
 
@@ -162,13 +169,18 @@ OPTIONS
   |ins-completion| modes.
 • 'completeopt' flag "nearset" sorts completion results by distance to cursor.
 • 'diffopt' `inline:` configures diff highlighting for changes within a line.
+• 'grepformat' is now a |global-local| option.
 • 'pummaxwidth' sets maximum width for the completion popup menu.
 • 'winborder' "bold" style.
 • |g:clipboard| accepts a string name to force any builtin clipboard tool.
 
 PERFORMANCE
 
-• todo
+• |vim.glob.to_lpeg()| uses a new LPeg-based implementation (Peglob) that
+  provides ~50% speedup for complex patterns. The implementation restores
+  support for nested braces and follows LSP 3.17 specification with
+  additional constraints for improved correctness and resistance to
+  backtracking edge cases.
 
 PLUGINS
 
@@ -215,6 +227,7 @@ These existing features changed their behavior.
 • 'spellfile' location defaults to `stdpath("data").."/site/spell/"` instead of
   the first writable directory in 'runtimepath'.
 • |vim.version.range()| doesn't exclude `to` if it is equal to `from`.
+• |searchcount()|'s maximal value is raised from 99 to 999.
 
 ==============================================================================
 REMOVED FEATURES                                                 *news-removed*

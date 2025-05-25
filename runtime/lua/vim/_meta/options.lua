@@ -2076,9 +2076,12 @@ vim.bo.expandtab = vim.o.expandtab
 vim.bo.et = vim.bo.expandtab
 
 --- Enables project-local configuration. Nvim will execute any .nvim.lua,
---- .nvimrc, or .exrc file found in the `current-directory`, if the file is
---- in the `trust` list. Use `:trust` to manage trusted files. See also
---- `vim.secure.read()`.
+--- .nvimrc, or .exrc file found in the `current-directory` and all parent
+--- directories (ordered upwards), if the files are in the `trust` list.
+--- Use `:trust` to manage trusted files. See also `vim.secure.read()`.
+---
+--- Unset 'exrc' to stop further searching of 'exrc' files in parent
+--- directories, similar to `editorconfig.root`.
 ---
 --- Compare 'exrc' to `editorconfig`:
 --- - 'exrc' can execute any code; editorconfig only specifies settings.
@@ -2822,6 +2825,8 @@ vim.go.gd = vim.go.gdefault
 --- @type string
 vim.o.grepformat = "%f:%l:%m,%f:%l%m,%f  %l%m"
 vim.o.gfm = vim.o.grepformat
+vim.bo.grepformat = vim.o.grepformat
+vim.bo.gfm = vim.bo.grepformat
 vim.go.grepformat = vim.o.grepformat
 vim.go.gfm = vim.go.grepformat
 

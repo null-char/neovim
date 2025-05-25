@@ -897,7 +897,7 @@ local function clip_regions(region1, region2)
     end
 
     -- Advance the range that ends earlier
-    if Range.cmp_pos.le(r1[3], r1[4], r2[3], r2[4]) then
+    if Range.cmp_pos.le(r1[4], r1[5], r2[4], r2[5]) then
       i = i + 1
     else
       j = j + 1
@@ -1287,12 +1287,13 @@ end
 local function tree_contains(tree, range)
   local tree_ranges = tree:included_ranges(false)
 
-  return Range.contains({
-    tree_ranges[1][1],
-    tree_ranges[1][2],
-    tree_ranges[#tree_ranges][3],
-    tree_ranges[#tree_ranges][4],
-  }, range)
+  for _, tree_range in ipairs(tree_ranges) do
+    if Range.contains(tree_range, range) then
+      return true
+    end
+  end
+
+  return false
 end
 
 --- Determines whether {range} is contained in the |LanguageTree|.

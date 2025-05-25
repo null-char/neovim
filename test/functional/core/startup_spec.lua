@@ -1108,6 +1108,7 @@ describe('user config init', function()
           string.format(
             [[
           vim.g.exrc_file = "%s"
+          vim.g.exrc_count = (vim.g.exrc_count or 0) + 1
         ]],
             exrc_path
           )
@@ -1118,6 +1119,7 @@ describe('user config init', function()
           string.format(
             [[
           let g:exrc_file = "%s"
+          let g:exrc_count = get(g:, 'exrc_count', 0) + 1
         ]],
             exrc_path
           )
@@ -1126,6 +1128,10 @@ describe('user config init', function()
     end
 
     before_each(function()
+      for _, file in ipairs({ '.exrc', '.nvimrc', '.nvim.lua' }) do
+        os.remove('../' .. file)
+        os.remove(file)
+      end
       write_file(
         init_lua_path,
         [[
@@ -1137,12 +1143,15 @@ describe('user config init', function()
     end)
 
     after_each(function()
-      os.remove(exrc_path)
+      for _, file in ipairs({ '.exrc', '.nvimrc', '.nvim.lua' }) do
+        os.remove('../' .. file)
+        os.remove(file)
+      end
       rmdir(xstate)
     end)
 
-    for _, filename in ipairs({ '.exrc', '.nvimrc', '.nvim.lua' }) do
-      it(filename .. ' in cwd', function()
+    for _, filename in ipairs({ '.exrc', '.nvimrc', '.nvim.lua', '../.nvim.lua', '../.nvimrc' }) do
+      it(filename .. ' from cwd', function()
         setup_exrc_file(filename)
 
         clear { args_rm = { '-u' }, env = xstateenv }
@@ -1185,6 +1194,32 @@ describe('user config init', function()
         eq(filename, eval('g:exrc_file'))
       end)
     end
+
+    it('exrc from parent directories', function()
+      setup_exrc_file('.nvim.lua')
+      setup_exrc_file('../.exrc')
+      clear { args_rm = { '-u' }, env = xstateenv }
+      local screen = Screen.new(50, 8)
+      screen._default_attr_ids = nil
+      fn.jobstart({ nvim_prog }, {
+        term = true,
+        env = {
+          VIMRUNTIME = os.getenv('VIMRUNTIME'),
+        },
+      })
+      -- current directory exrc is found first
+      screen:expect({ any = '.nvim.lua' })
+      screen:expect({ any = pesc('[i]gnore, (v)iew, (d)eny, (a)llow:'), unchanged = true })
+      feed('ia')
+
+      -- after that the exrc in the parent directory
+      screen:expect({ any = '.exrc' })
+      screen:expect({ any = pesc('[i]gnore, (v)iew, (d)eny, (a)llow:'), unchanged = true })
+      feed('a')
+      -- a total of 2 exrc files are executed
+      feed(':echo g:exrc_count<CR>')
+      screen:expect({ any = '2' })
+    end)
   end)
 
   describe('with explicitly provided config', function()

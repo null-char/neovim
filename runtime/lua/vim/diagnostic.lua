@@ -115,8 +115,8 @@ end
 --- (default: current buffer)
 --- @field bufnr? integer
 ---
---- Limit diagnostics to the given namespace
---- @field namespace? integer
+--- Limit diagnostics to the given namespace(s).
+--- @field namespace? integer|integer[]
 ---
 --- Show diagnostics from the whole buffer (`buffer"`, the current cursor line
 --- (`line`), or the current cursor position (`cursor`). Shorthand versions
@@ -288,9 +288,8 @@ end
 
 --- @class vim.diagnostic.Opts.Jump
 ---
---- Default value of the {float} parameter of |vim.diagnostic.jump()|.
---- (default: false)
---- @field float? boolean|vim.diagnostic.Opts.Float
+--- Default value of the {on_jump} parameter of |vim.diagnostic.jump()|.
+--- @field on_jump? fun(diagnostic:vim.Diagnostic?, bufnr:integer)
 ---
 --- Default value of the {wrap} parameter of |vim.diagnostic.jump()|.
 --- (default: true)
@@ -346,9 +345,6 @@ local global_diagnostic_options = {
   update_in_insert = false,
   severity_sort = false,
   jump = {
-    -- Do not show floating window
-    float = false,
-
     -- Wrap around buffer
     wrap = true,
   },
@@ -746,7 +742,7 @@ local registered_autocmds = {}
 
 local function make_augroup_key(namespace, bufnr)
   local ns = M.get_namespace(namespace)
-  return string.format('DiagnosticInsertLeave:%s:%s', bufnr, ns.name)
+  return string.format('nvim.diagnostic.insertleave.%s.%s', bufnr, ns.name)
 end
 
 --- @param namespace integer
@@ -834,9 +830,22 @@ local function get_diagnostics(bufnr, opts, clamp)
 
   ---@param b integer
   ---@param d vim.Diagnostic
+  local match_enablement = function(d, b)
+    if opts.enabled == nil then
+      return true
+    end
+
+    local enabled = M.is_enabled({ bufnr = b, ns_id = d.namespace })
+
+    return (enabled and opts.enabled) or (not enabled and not opts.enabled)
+  end
+
+  ---@param b integer
+  ---@param d vim.Diagnostic
   local function add(b, d)
     if
       match_severity(d)
+      and match_enablement(d, b)
       and (not opts.lnum or (opts.lnum >= d.lnum and opts.lnum <= (d.end_lnum or d.lnum)))
     then
       if clamp and api.nvim_buf_is_loaded(b) then
@@ -909,6 +918,9 @@ local function set_list(loclist, opts)
   -- Don't clamp line numbers since the quickfix list can already handle line
   -- numbers beyond the end of the buffer
   local diagnostics = get_diagnostics(bufnr, opts --[[@as vim.diagnostic.GetOpts]], false)
+  if opts.format then
+    diagnostics = reformat_diagnostics(opts.format, diagnostics)
+  end
   local items = M.toqflist(diagnostics)
   local qf_id = nil
   if loclist then
@@ -1142,6 +1154,25 @@ function M.config(opts, namespace)
     return vim.deepcopy(t, true)
   end
 
+  if opts.jump and opts.jump.float ~= nil then ---@diagnostic disable-line
+    vim.deprecate('opts.jump.float', 'opts.jump.on_jump', '0.14')
+
+    local float_opts = opts.jump.float ---@type table|boolean
+    if float_opts then
+      float_opts = type(float_opts) == 'table' and float_opts or {}
+
+      opts.jump.on_jump = function(_, bufnr)
+        M.open_float(vim.tbl_extend('keep', float_opts, {
+          bufnr = bufnr,
+          scope = 'cursor',
+          focus = false,
+        }))
+      end
+    end
+
+    opts.jump.float = nil ---@diagnostic disable-line
+  end
+
   for k, v in
     pairs(opts --[[@as table<any,any>]])
   do
@@ -1342,6 +1373,11 @@ end
 ---
 --- See |diagnostic-severity|.
 --- @field severity? vim.diagnostic.SeverityFilter
+---
+--- Limit diagnostics to only enabled or disabled. If nil, enablement is ignored.
+--- See |vim.diagnostic.enable()|
+--- (default: `nil`)
+--- @field enabled? boolean
 
 --- Configuration table with the keys listed below. Some parameters can have their default values
 --- changed with |vim.diagnostic.config()|.
@@ -1573,21 +1609,33 @@ M.handlers.underline = {
 --- @param opts vim.diagnostic.Opts.VirtualText
 local function render_virtual_text(namespace, bufnr, diagnostics, opts)
   local lnum = api.nvim_win_get_cursor(0)[1] - 1
+  local buf_len = api.nvim_buf_line_count(bufnr)
   api.nvim_buf_clear_namespace(bufnr, namespace, 0, -1)
 
-  for line, line_diagnostics in pairs(diagnostics) do
-    local virt_texts = M._get_virt_text_chunks(line_diagnostics, opts)
-    local skip = (opts.current_line == true and line ~= lnum)
+  local function should_render(line)
+    if
+      (line >= buf_len)
+      or (opts.current_line == true and line ~= lnum)
       or (opts.current_line == false and line == lnum)
+    then
+      return false
+    end
 
-    if virt_texts and not skip then
-      api.nvim_buf_set_extmark(bufnr, namespace, line, 0, {
-        hl_mode = opts.hl_mode or 'combine',
-        virt_text = virt_texts,
-        virt_text_pos = opts.virt_text_pos,
-        virt_text_hide = opts.virt_text_hide,
-        virt_text_win_col = opts.virt_text_win_col,
-      })
+    return true
+  end
+
+  for line, line_diagnostics in pairs(diagnostics) do
+    if should_render(line) then
+      local virt_texts = M._get_virt_text_chunks(line_diagnostics, opts)
+      if virt_texts then
+        api.nvim_buf_set_extmark(bufnr, namespace, line, 0, {
+          hl_mode = opts.hl_mode or 'combine',
+          virt_text = virt_texts,
+          virt_text_pos = opts.virt_text_pos,
+          virt_text_hide = opts.virt_text_hide,
+          virt_text_win_col = opts.virt_text_win_col,
+        })
+      end
     end
   end
 end
@@ -2348,8 +2396,8 @@ end
 --- @class vim.diagnostic.setqflist.Opts
 --- @inlinedoc
 ---
---- Only add diagnostics from the given namespace.
---- @field namespace? integer
+--- Only add diagnostics from the given namespace(s).
+--- @field namespace? integer[]|integer
 ---
 --- Open quickfix list after setting.
 --- (default: `true`)
@@ -2361,6 +2409,11 @@ end
 ---
 --- See |diagnostic-severity|.
 --- @field severity? vim.diagnostic.SeverityFilter
+---
+--- A function that takes a diagnostic as input and returns a string or nil.
+--- If the return value is nil, the diagnostic is not displayed in the quickfix list.
+--- Else the output text is used to display the diagnostic.
+--- @field format? fun(diagnostic:vim.Diagnostic): string?
 
 --- Add all diagnostics to the quickfix list.
 ---
@@ -2373,8 +2426,8 @@ end
 --- @class vim.diagnostic.setloclist.Opts
 --- @inlinedoc
 ---
---- Only add diagnostics from the given namespace.
---- @field namespace? integer
+--- Only add diagnostics from the given namespace(s).
+--- @field namespace? integer[]|integer
 ---
 --- Window number to set location list for.
 --- (default: `0`)
@@ -2389,6 +2442,11 @@ end
 ---
 --- See |diagnostic-severity|.
 --- @field severity? vim.diagnostic.SeverityFilter
+---
+--- A function that takes a diagnostic as input and returns a string or nil.
+--- If the return value is nil, the diagnostic is not displayed in the location list.
+--- Else the output text is used to display the diagnostic.
+--- @field format? fun(diagnostic:vim.Diagnostic): string?
 
 --- Add buffer diagnostics to the location list.
 ---
